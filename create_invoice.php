@@ -1,0 +1,552 @@
+<?php
+session_start();
+
+if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
+    header('Location: index.php');
+    exit;
+}
+
+require_once 'config/database.php';
+require_once 'includes/company_helper.php';
+$company = getCompanySettings($pdo);
+$currency = $company['currency'] ?? 'MKD';
+
+// Get all clients for the dropdown
+$stmt = $pdo->query("SELECT id, name FROM clients ORDER BY name");
+$clients = $stmt->fetchAll();
+
+// Get all services for the dropdown
+$stmt = $pdo->query("SELECT id, name, price, description FROM services ORDER BY name");
+$services = $stmt->fetchAll();
+
+// Handle form submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $client_id = $_POST['client_id'];
+    $issue_date = $_POST['issue_date'];
+    $due_date = $_POST['due_date'];
+    $tax_rate = floatval($_POST['tax_rate']);
+    $global_discount_rate = floatval($_POST['global_discount_rate'] ?? 0);
+    $is_global_discount = isset($_POST['is_global_discount']) ? 1 : 0;
+    $notes = trim($_POST['notes']);
+    $is_vat_obvrznik = isset($_POST['is_vat_obvrznik']) ? 1 : 0;
+    
+    // Get line items
+    $line_items = [];
+    $item_names = $_POST['item_name'] ?? [];
+    $service_ids = $_POST['service_id'] ?? [];
+    $descriptions = $_POST['description'] ?? [];
+    $quantities = $_POST['quantity'] ?? [];
+    $unit_prices = $_POST['unit_price'] ?? [];
+    $discount_rates = $_POST['discount_rate'] ?? [];
+    $is_discounts = $_POST['is_discount'] ?? [];
+    
+    $subtotal = 0;
+    
+    // Process line items
+    for ($i = 0; $i < count($item_names); $i++) {
+        if (!empty($item_names[$i]) && !empty($quantities[$i]) && !empty($unit_prices[$i])) {
+            $quantity = floatval($quantities[$i]);
+            $unit_price = floatval($unit_prices[$i]);
+            $discount_rate = floatval($discount_rates[$i] ?? 0);
+            $is_discount = isset($is_discounts[$i]) ? 1 : 0;
+            
+            $item_subtotal = $quantity * $unit_price;
+            $item_discount_amount = $item_subtotal * ($discount_rate / 100);
+            $final_price = $item_subtotal - $item_discount_amount;
+            $subtotal += $final_price;
+            
+            $line_items[] = [
+                'service_id' => !empty($service_ids[$i]) ? $service_ids[$i] : null,
+                'item_name' => $item_names[$i],
+                'description' => $descriptions[$i],
+                'quantity' => $quantity,
+                'unit_price' => $unit_price,
+                'total_price' => $final_price,
+                'discount_rate' => $discount_rate,
+                'discount_amount' => $item_discount_amount,
+                'is_discount' => $is_discount,
+                'final_price' => $final_price
+            ];
+        }
+    }
+    
+    if (empty($line_items)) {
+        $error = "За најмалку еден ред е потребно!";
+    } else {
+        try {
+            $pdo->beginTransaction();
+            
+            // Generate automatic invoice number
+            $current_year = date('Y');
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM invoices WHERE YEAR(created_at) = ?");
+            $stmt->execute([$current_year]);
+            $invoice_count = $stmt->fetchColumn();
+            $invoice_number = $current_year . '-' . str_pad($invoice_count + 1, 3, '0', STR_PAD_LEFT);
+            
+            // Calculate global discount
+            $global_discount_amount = $subtotal * ($global_discount_rate / 100);
+            $subtotal_after_global_discount = $subtotal - $global_discount_amount;
+            
+            // Calculate totals
+            $tax_amount = $subtotal_after_global_discount * ($tax_rate / 100);
+            $total_amount = $subtotal_after_global_discount + $tax_amount;
+            
+            // Create invoice
+            $stmt = $pdo->prepare("INSERT INTO invoices (client_id, invoice_number, issue_date, due_date, subtotal, tax_rate, tax_amount, total_amount, notes, is_vat_obvrznik, global_discount_rate, global_discount_amount, is_global_discount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$client_id, $invoice_number, $issue_date, $due_date, $subtotal, $tax_rate, $tax_amount, $total_amount, $notes, $is_vat_obvrznik, $global_discount_rate, $global_discount_amount, $is_global_discount]);
+            $invoice_id = $pdo->lastInsertId();
+            
+            // Create invoice items
+            $stmt = $pdo->prepare("INSERT INTO invoice_items (invoice_id, service_id, item_name, description, quantity, unit_price, total_price, discount_rate, discount_amount, is_discount, final_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            foreach ($line_items as $item) {
+                $stmt->execute([$invoice_id, $item['service_id'], $item['item_name'], $item['description'], $item['quantity'], $item['unit_price'], $item['total_price'], $item['discount_rate'], $item['discount_amount'], $item['is_discount'], $item['final_price']]);
+            }
+            
+            $pdo->commit();
+            $success = "Фактура успешно креирана! Број на фактура: " . $invoice_number;
+            
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            $error = "Грешка при креирање на фактура: " . $e->getMessage();
+        }
+    }
+}
+
+// Set default dates
+$default_issue_date = date('Y-m-d');
+$default_due_date = date('Y-m-d', strtotime('+30 days'));
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Invoice - Invoicing System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .main-content {
+            flex: 1;
+        }
+        footer {
+            margin-top: auto;
+        }
+        .line-item-row {
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .remove-line-item {
+            color: #dc3545;
+            cursor: pointer;
+        }
+        .service-select {
+            margin-bottom: 10px;
+        }
+        .discount-checkbox {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 4px;
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+        .discount-checkbox .form-check {
+            margin-bottom: 0;
+        }
+        .short-input { max-width: 200px; min-width: 70px; }
+        .big-checkbox-label { font-size: 1rem; font-weight: 400; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="#">Систем за Фактури</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="dashboard.php">Почетна</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="invoices.php">Фактури</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="offers.php">Понуди</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="clients.php">Клиенти</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="services.php">Услуги</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="company_settings.php">Поставки</a>
+                    </li>
+                </ul>
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="logout.php">Одјава</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4 main-content">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>Креирај нова фактура</h2>
+            <a href="invoices.php" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> Назад кон фактури
+            </a>
+        </div>
+
+        <?php if (isset($error)): ?>
+            <div class="alert alert-danger"><?php echo $error; ?></div>
+        <?php endif; ?>
+        
+        <?php if (isset($success)): ?>
+            <div class="alert alert-success"><?php echo $success; ?></div>
+        <?php endif; ?>
+
+        <form method="POST" id="invoiceForm">
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Детали за фактурата</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="client_id" class="form-label">Клиент *</label>
+                                        <select class="form-select" id="client_id" name="client_id" required>
+                                            <option value="">Избери клиент</option>
+                                            <?php foreach (
+                                                $clients as $client): ?>
+                                                <option value="<?php echo $client['id']; ?>">
+                                                    <?php echo htmlspecialchars($client['name']); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="issue_date" class="form-label">Датум на издавање *</label>
+                                        <input type="date" class="form-control" id="issue_date" name="issue_date" value="<?php echo $default_issue_date; ?>" required>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="due_date" class="form-label">Датум за доспевање *</label>
+                                        <input type="date" class="form-control" id="due_date" name="due_date" value="<?php echo $default_due_date; ?>" required>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="tax_rate" class="form-label">Ставка на ДДВ (%)</label>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <input type="number" step="0.01" min="0" max="100" class="form-control short-input" id="tax_rate" name="tax_rate" value="0" disabled>
+                                            <div class="discount-checkbox d-flex align-items-center mb-0" style="height: 38px;">
+                                                <input class="form-check-input me-1" type="checkbox" id="is_vat_obvrznik" name="is_vat_obvrznik" value="1" onchange="toggleVatRate()">
+                                                <label class="form-check-label ms-1 big-checkbox-label" for="is_vat_obvrznik">ДДВ обврзник</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="global_discount_rate" class="form-label">Глобална попуст (%)</label>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <input type="number" step="0.01" min="0" max="100" class="form-control short-input" id="global_discount_rate" name="global_discount_rate" value="0" disabled>
+                                            <div class="discount-checkbox d-flex align-items-center mb-0" style="height: 38px;">
+                                                <input class="form-check-input me-1" type="checkbox" id="is_global_discount" name="is_global_discount" value="1" onchange="toggleGlobalDiscount()">
+                                                <label class="form-check-label ms-1 big-checkbox-label" for="is_global_discount">Глобална попуст</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-12">
+                                    <div class="mb-3">
+                                        <label for="notes" class="form-label">Белешки на фактурата</label>
+                                        <textarea class="form-control" id="notes" name="notes" rows="3" placeholder="Белешки за фактурата"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Ставки на фактурата</h5>
+                            <button type="button" class="btn btn-sm btn-primary" onclick="addLineItem()">
+                                <i class="bi bi-plus"></i> Додај ставка
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div id="lineItemsContainer">
+                                <!-- Редови за фактурата ќе се додаваат тука -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Вкупно</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label class="form-label">Подвкупен износ</label>
+                                <div class="h4" id="subtotal">0.00 <?php echo $currency; ?></div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Глобална попуст</label>
+                                <div class="h5 text-success" id="globalDiscountAmount">0.00 <?php echo $currency; ?></div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Износ на ДДВ</label>
+                                <div class="h5" id="taxAmount">0.00 <?php echo $currency; ?></div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Вкупен износ</label>
+                                <div class="h3 text-primary" id="totalAmount">0.00 <?php echo $currency; ?></div>
+                            </div>
+                            
+                            <div class="d-grid gap-2">
+                                <button type="submit" class="btn btn-primary btn-lg">
+                                    <i class="bi bi-check"></i> Креирај фактура
+                                </button>
+                                <a href="invoices.php" class="btn btn-secondary">Откажи</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    </div>
+
+    <!-- Footer -->
+    <footer class="bg-dark mt-5 py-3">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-12 text-center">
+                    <p class="mb-0" style="color: #38BDF8;">Custom Invoicing System made by <strong><a href="https://ddsolutions.com.mk/" target="_blank" style="color: #38BDF8; text-decoration: none;">DDSolutions</a></strong></p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Services data for JavaScript
+        const services = <?php echo json_encode($services); ?>;
+        const currency = <?php echo json_encode($currency); ?>;
+        let lineItemCounter = 0;
+
+        function addLineItem() {
+            const container = document.getElementById('lineItemsContainer');
+            const lineItemHtml = `
+                <div class="line-item-row" id="lineItem${lineItemCounter}">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <h6 class="mb-0">Ред ${lineItemCounter + 1}</h6>
+                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeLineItem(${lineItemCounter})">
+                            <i class="bi bi-trash"></i> Отстрани
+                        </button>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Избери услуга (Незадолжително)</label>
+                        <select class="form-select service-select" onchange="updateItemFromService(${lineItemCounter}, this.value)">
+                            <option value="">Избери услуга</option>
+                            ${services.map(service => `<option value="${service.id}" data-name="${service.name}" data-price="${service.price}" data-description="${service.description || ''}">${service.name} - ${service.price} ${currency}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Име на ставка *</label>
+                                <input type="text" class="form-control" name="item_name[]" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Единица цена *</label>
+                                <input type="number" step="0.01" min="0.01" class="form-control short-input" name="unit_price[]" required onchange="calculateLineTotal(${lineItemCounter})">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Попуст (%)</label>
+                                <div class="d-flex align-items-center gap-2">
+                                    <input type="number" step="0.01" min="0" max="100" class="form-control short-input" name="discount_rate[]" id="discountRate${lineItemCounter}" value="0" disabled onchange="calculateLineTotal(${lineItemCounter})">
+                                    <div class="discount-checkbox d-flex align-items-center mb-0" style="height: 38px;">
+                                        <input class="form-check-input me-1" type="checkbox" name="is_discount[]" id="isDiscount${lineItemCounter}" value="1" onchange="toggleItemDiscount(${lineItemCounter})">
+                                        <label class="form-check-label ms-1 big-checkbox-label" for="isDiscount${lineItemCounter}">Попуст на ставка</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Количина *</label>
+                                <input type="number" step="0.01" min="0.01" class="form-control short-input" name="quantity[]" value="1" required onchange="calculateLineTotal(${lineItemCounter})">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Вкупен износ</label>
+                                <input type="text" class="form-control" readonly id="lineTotal${lineItemCounter}" value="0.00 ${currency}">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Опис</label>
+                                <textarea class="form-control" name="description[]" rows="2" placeholder="Незадолжителен опис"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <input type="hidden" name="service_id[]" value="">
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', lineItemHtml);
+            lineItemCounter++;
+            
+            // Add first line item automatically
+            // if (lineItemCounter === 1) {
+            //     addLineItem();
+            // }
+        }
+
+        function removeLineItem(index) {
+            const element = document.getElementById(`lineItem${index}`);
+            if (element) {
+                element.remove();
+                calculateTotals();
+            }
+        }
+
+        function updateItemFromService(lineItemIndex, serviceId) {
+            if (!serviceId) return;
+            
+            const service = services.find(s => s.id == serviceId);
+            if (service) {
+                const lineItem = document.getElementById(`lineItem${lineItemIndex}`);
+                lineItem.querySelector('input[name="item_name[]"]').value = service.name;
+                lineItem.querySelector('input[name="unit_price[]"]').value = service.price;
+                lineItem.querySelector('textarea[name="description[]"]').value = service.description || '';
+                lineItem.querySelector('input[name="service_id[]"]').value = service.id;
+                
+                calculateLineTotal(lineItemIndex);
+            }
+        }
+
+        function calculateLineTotal(lineItemIndex) {
+            const lineItem = document.getElementById(`lineItem${lineItemIndex}`);
+            if (!lineItem) return;
+            
+            const quantity = parseFloat(lineItem.querySelector('input[name="quantity[]"]').value) || 0;
+            const unitPrice = parseFloat(lineItem.querySelector('input[name="unit_price[]"]').value) || 0;
+            const discountRate = parseFloat(lineItem.querySelector('input[name="discount_rate[]"]').value) || 0;
+            
+            const subtotal = quantity * unitPrice;
+            const discountAmount = subtotal * (discountRate / 100);
+            const total = subtotal - discountAmount;
+            
+            lineItem.querySelector(`#lineTotal${lineItemIndex}`).value = `${total.toFixed(2)} ${currency}`;
+            calculateTotals();
+        }
+
+        function calculateTotals() {
+            let subtotal = 0;
+            const lineItems = document.querySelectorAll('.line-item-row');
+            
+            lineItems.forEach((item, index) => {
+                const quantity = parseFloat(item.querySelector('input[name="quantity[]"]').value) || 0;
+                const unitPrice = parseFloat(item.querySelector('input[name="unit_price[]"]').value) || 0;
+                const discountRate = parseFloat(item.querySelector('input[name="discount_rate[]"]').value) || 0;
+                
+                const itemSubtotal = quantity * unitPrice;
+                const itemDiscount = itemSubtotal * (discountRate / 100);
+                subtotal += itemSubtotal - itemDiscount;
+            });
+            
+            const globalDiscountRate = parseFloat(document.getElementById('global_discount_rate').value) || 0;
+            const globalDiscountAmount = subtotal * (globalDiscountRate / 100);
+            const subtotalAfterGlobalDiscount = subtotal - globalDiscountAmount;
+            
+            const taxRate = parseFloat(document.getElementById('tax_rate').value) || 0;
+            const taxAmount = subtotalAfterGlobalDiscount * (taxRate / 100);
+            const total = subtotalAfterGlobalDiscount + taxAmount;
+            
+            document.getElementById('subtotal').textContent = `${subtotal.toFixed(2)} ${currency}`;
+            document.getElementById('globalDiscountAmount').textContent = `${globalDiscountAmount.toFixed(2)} ${currency}`;
+            document.getElementById('taxAmount').textContent = `${taxAmount.toFixed(2)} ${currency}`;
+            document.getElementById('totalAmount').textContent = `${total.toFixed(2)} ${currency}`;
+        }
+
+        function toggleVatRate() {
+            const vatCheckbox = document.getElementById('is_vat_obvrznik');
+            const taxRateInput = document.getElementById('tax_rate');
+            
+            if (vatCheckbox.checked) {
+                taxRateInput.disabled = false;
+                taxRateInput.required = true;
+            } else {
+                taxRateInput.disabled = true;
+                taxRateInput.required = false;
+                taxRateInput.value = '0';
+                calculateTotals();
+            }
+        }
+
+        function toggleGlobalDiscount() {
+            const discountCheckbox = document.getElementById('is_global_discount');
+            const discountRateInput = document.getElementById('global_discount_rate');
+            
+            if (discountCheckbox.checked) {
+                discountRateInput.disabled = false;
+                discountRateInput.required = true;
+            } else {
+                discountRateInput.disabled = true;
+                discountRateInput.required = false;
+                discountRateInput.value = '0';
+                calculateTotals();
+            }
+        }
+
+        function toggleItemDiscount(lineItemIndex) {
+            const discountCheckbox = document.getElementById(`isDiscount${lineItemIndex}`);
+            const discountRateInput = document.getElementById(`discountRate${lineItemIndex}`);
+            
+            if (discountCheckbox.checked) {
+                discountRateInput.disabled = false;
+                discountRateInput.required = true;
+            } else {
+                discountRateInput.disabled = true;
+                discountRateInput.required = false;
+                discountRateInput.value = '0';
+                calculateLineTotal(lineItemIndex);
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            addLineItem(); // Only add one row
+            
+            // Add event listener for tax rate changes
+            document.getElementById('tax_rate').addEventListener('change', calculateTotals);
+            
+            // Add event listener for global discount rate changes
+            document.getElementById('global_discount_rate').addEventListener('change', calculateTotals);
+        });
+    </script>
+</body>
+</html> 

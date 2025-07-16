@@ -1,0 +1,1 @@
+ALTER TABLE offers ADD COLUMN is_vat_obvrznik TINYINT(1) DEFAULT 0; 
