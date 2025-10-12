@@ -1,1 +1,0 @@
-ALTER TABLE invoices ADD is_vat_obvrznik TINYINT(1) DEFAULT 0; 

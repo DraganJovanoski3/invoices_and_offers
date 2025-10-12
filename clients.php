@@ -7,6 +7,7 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 }
 
 require_once 'config/database.php';
+require_once 'includes/company_helper.php';
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -90,17 +91,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // Get all clients
 $stmt = $pdo->query("SELECT * FROM clients ORDER BY name");
 $clients = $stmt->fetchAll();
+
+// Get company settings
+$company = getCompanySettings($pdo);
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Clients - Invoicing System</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
-</head>
-<body>
+<?php include 'includes/header.php'; ?>
+<?php include 'includes/navbar.php'; ?>
     <?php
     $logo_path = '/uploads/company_logo.png';
     $upload_dir = __DIR__ . '/uploads/';
@@ -109,44 +105,7 @@ $clients = $stmt->fetchAll();
         $logo_path = '/uploads/' . basename($logo_files[0]);
     }
     ?>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container">
-            <a class="navbar-brand d-flex align-items-center" href="#">
-                <img src="<?php echo $logo_path; ?>" alt="DDS Logo" style="height:32px; width:auto; margin-right:10px;">
-                Фактури и Понуди
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="dashboard.php">Почетна</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="invoices.php">Фактури</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="offers.php">Понуди</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link active" href="clients.php">Клиенти</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="services.php">Услуги</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="company_settings.php">Поставки</a>
-                    </li>
-                </ul>
-                <ul class="navbar-nav">
-                    <li class="nav-item">
-                        <a class="nav-link" href="logout.php">Одјава</a>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </nav>
+    
 
     <div class="container mt-4">
         <div class="d-flex justify-content-between align-items-center mb-4">
@@ -167,14 +126,14 @@ $clients = $stmt->fetchAll();
         <div class="row">
             <?php foreach ($clients as $client): ?>
                 <div class="col-md-6 col-lg-4 mb-4">
-                    <div class="card">
-                        <div class="card-body">
+                    <div class="card shadow-sm h-100 border-0">
+                        <div class="card-body p-4">
                             <?php if (!empty($client['logo_path'])): ?>
-                                <div class="mb-2 text-center">
-                                    <img src="<?php echo htmlspecialchars($client['logo_path']); ?>" alt="Лого" style="max-width: 60px; max-height: 60px; object-fit: contain;">
+                                <div class="mb-3 text-center">
+                                    <img src="<?php echo htmlspecialchars($client['logo_path']); ?>" alt="Лого" style="max-width: 70px; max-height: 70px; object-fit: contain; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.07);">
                                 </div>
                             <?php endif; ?>
-                            <h5 class="card-title"><?php echo htmlspecialchars($client['name']); ?></h5>
+                            <h5 class="card-title mb-2 text-primary fw-bold"><?php echo htmlspecialchars($client['name']); ?></h5>
                             <?php if (!empty($client['company_name'])): ?>
                                 <div class="mb-1"><strong>Компанија:</strong> <?php echo htmlspecialchars($client['company_name']); ?></div>
                             <?php endif; ?>
@@ -195,7 +154,7 @@ $clients = $stmt->fetchAll();
                             <?php if (!empty($client['notes'])): ?>
                                 <div class="mb-1"><strong>Забелешки:</strong> <?php echo nl2br(htmlspecialchars($client['notes'])); ?></div>
                             <?php endif; ?>
-                            <div class="btn-group mt-2" role="group">
+                            <div class="btn-group mt-3 w-100" role="group">
                                 <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editClientModal<?php echo $client['id']; ?>">Измени</button>
                                 <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteClient(<?php echo $client['id']; ?>, '<?php echo htmlspecialchars($client['name']); ?>')">Избриши</button>
                             </div>
@@ -204,7 +163,7 @@ $clients = $stmt->fetchAll();
                 </div>
                 <!-- Edit Client Modal -->
                 <div class="modal fade" id="editClientModal<?php echo $client['id']; ?>" tabindex="-1">
-                    <div class="modal-dialog">
+                    <div class="modal-dialog modal-lg">
                         <div class="modal-content">
                             <div class="modal-header">
                                 <h5 class="modal-title">Измени клиент</h5>
@@ -281,7 +240,7 @@ $clients = $stmt->fetchAll();
 
     <!-- Add Client Modal -->
     <div class="modal fade" id="addClientModal" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">Нов клиент</h5>
@@ -290,41 +249,49 @@ $clients = $stmt->fetchAll();
                 <form method="POST" enctype="multipart/form-data">
                     <div class="modal-body">
                         <input type="hidden" name="action" value="add">
-                        <div class="mb-3">
-                            <label for="name" class="form-label">Име</label>
-                            <input type="text" class="form-control" id="name" name="name" required>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="name" class="form-label">Име</label>
+                                <input type="text" class="form-control" id="name" name="name" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="company_name" class="form-label">Име на компанија</label>
+                                <input type="text" class="form-control" id="company_name" name="company_name">
+                            </div>
                         </div>
-                        <div class="mb-3">
-                            <label for="company_name" class="form-label">Име на компанија</label>
-                            <input type="text" class="form-control" id="company_name" name="company_name">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="email" class="form-label">Е-пошта</label>
+                                <input type="email" class="form-control" id="email" name="email">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="phone" class="form-label">Телефон</label>
+                                <input type="tel" class="form-control" id="phone" name="phone">
+                            </div>
                         </div>
-                        <div class="mb-3">
-                            <label for="logo" class="form-label">Лого</label>
-                            <input type="file" class="form-control" id="logo" name="logo" accept="image/*">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="tax_number" class="form-label">Даночен број</label>
+                                <input type="text" class="form-control" id="tax_number" name="tax_number">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="bank_account" class="form-label">Жиро сметка</label>
+                                <input type="text" class="form-control" id="bank_account" name="bank_account">
+                            </div>
                         </div>
-                        <div class="mb-3">
-                            <label for="email" class="form-label">Е-пошта</label>
-                            <input type="email" class="form-control" id="email" name="email">
-                        </div>
-                        <div class="mb-3">
-                            <label for="phone" class="form-label">Телефон</label>
-                            <input type="tel" class="form-control" id="phone" name="phone">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="website" class="form-label">Веб-страна</label>
+                                <input type="text" class="form-control" id="website" name="website">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="logo" class="form-label">Лого</label>
+                                <input type="file" class="form-control" id="logo" name="logo" accept="image/*">
+                            </div>
                         </div>
                         <div class="mb-3">
                             <label for="address" class="form-label">Адреса</label>
-                            <textarea class="form-control" id="address" name="address" rows="3"></textarea>
-                        </div>
-                        <div class="mb-3">
-                            <label for="tax_number" class="form-label">Даночен број</label>
-                            <input type="text" class="form-control" id="tax_number" name="tax_number">
-                        </div>
-                        <div class="mb-3">
-                            <label for="bank_account" class="form-label">Жиро сметка</label>
-                            <input type="text" class="form-control" id="bank_account" name="bank_account">
-                        </div>
-                        <div class="mb-3">
-                            <label for="website" class="form-label">Веб-страна</label>
-                            <input type="text" class="form-control" id="website" name="website">
+                            <textarea class="form-control" id="address" name="address" rows="2"></textarea>
                         </div>
                         <div class="mb-3">
                             <label for="notes" class="form-label">Забелешки</label>
@@ -364,7 +331,7 @@ $clients = $stmt->fetchAll();
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
     <script>
         function deleteClient(clientId, clientName) {
             document.getElementById('deleteClientId').value = clientId;
@@ -372,5 +339,6 @@ $clients = $stmt->fetchAll();
             new bootstrap.Modal(document.getElementById('deleteClientModal')).show();
         }
     </script>
+<?php include 'includes/footer.php'; ?>
 </body>
 </html> 

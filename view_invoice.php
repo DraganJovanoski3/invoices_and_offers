@@ -47,6 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
 
 // Get company settings
 $company = getCompanySettings($pdo);
+$page_title = 'Фактура';
 
 $logo_path = '/uploads/company_logo.png';
 $upload_dir = __DIR__ . '/uploads/';
@@ -64,113 +65,15 @@ foreach ($items as $item) {
         break;
     }
 }
-?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Invoice #<?php echo $invoice['invoice_number']; ?> - Invoicing System</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        .invoice-container {
-            max-width: 800px;
-            margin: 0 auto;
-            background: white;
-            padding: 30px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            font-size: 0.92rem;
-        }
-        .invoice-header {
-            border-bottom: 2px solid #007bff;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
-        }
-        .company-info {
-            text-align: right;
-        }
-        .client-info {
-            margin-bottom: 30px;
-        }
-        .invoice-details {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 5px;
-            margin-bottom: 30px;
-        }
-        .items-table {
-            margin-bottom: 30px;
-        }
-        .total-section {
-            border-top: 2px solid #dee2e6;
-            padding-top: 20px;
-        }
-        .client-logo {
-            max-width: 120px;
-            max-height: 60px;
-            margin-bottom: 8px;
-            display: block;
-        }
-        .client-details {
-            font-size: 0.92em;
-        }
-        @media print {
-            .no-print {
-                display: none !important;
-            }
-            .invoice-container {
-                box-shadow: none;
-                padding: 0;
-            }
-        }
-        body {
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        .main-content {
-            flex: 1;
-        }
-        footer {
-            margin-top: auto;
-        }
-    </style>
-</head>
-<body class="bg-light">
-    <div class="no-print">
-        <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-            <div class="container">
-                <a class="navbar-brand d-flex align-items-center" href="#">
-                    <img src="<?php echo $logo_path; ?>" alt="DDS Logo" style="height:32px; width:auto; margin-right:10px;">
-                    Фактури и Понуди
-                </a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                <div class="collapse navbar-collapse" id="navbarNav">
-                    <ul class="navbar-nav me-auto">
-                        <li class="nav-item">
-                            <a class="nav-link" href="dashboard.php">Почетна</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link active" href="invoices.php">Фактури</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="offers.php">Понуди</a>
-                        </li>
-                    </ul>
-                    <ul class="navbar-nav">
-                        <li class="nav-item">
-                            <a class="nav-link" href="logout.php">Одјава</a>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-        </nav>
-    </div>
 
-    <div class="container mt-4 main-content">
+// Get company settings
+$company = getCompanySettings($pdo);
+$page_title = 'Фактура';
+?>
+<?php include 'includes/header.php'; ?>
+<?php include 'includes/navbar.php'; ?>
+
+<div class="container mt-4 main-content">
         <div class="no-print mb-3">
             <a href="invoices.php" class="btn btn-secondary">
                 <i class="bi bi-arrow-left"></i> Назад кон фактури
@@ -270,6 +173,39 @@ foreach ($items as $item) {
                     <td width="50%" style="font-size: 10pt;"><strong>Датум на доспевање:</strong> <?php echo date('d.m.Y', strtotime($invoice['due_date'])); ?></td>
                 </tr></table>
             </div>
+            
+            <!-- LEGAL INFORMATION ROW -->
+            <div style="margin-bottom: 15px; padding-bottom: 10px;">
+                <table width="100%" style="margin-bottom:0; padding-bottom:0;"><tr>
+                    <td width="50%" style="font-size: 10pt;"><strong>Датум на испорака:</strong> <?php echo $invoice['supply_date'] ? date('d.m.Y', strtotime($invoice['supply_date'])) : date('d.m.Y', strtotime($invoice['issue_date'])); ?></td>
+                    <td width="50%" style="font-size: 10pt;"><strong>Начин на плаќање:</strong> 
+                        <?php 
+                        $payment_methods = [
+                            'bank_transfer' => 'Банкарски трансфер',
+                            'cash' => 'Готовина',
+                            'card' => 'Картичка',
+                            'check' => 'Чек',
+                            'other' => 'Друго'
+                        ];
+                        echo $payment_methods[$invoice['payment_method']] ?? 'Банкарски трансфер';
+                        ?>
+                    </td>
+                </tr></table>
+            </div>
+            
+            <!-- AUTHORIZED PERSON ROW -->
+            <?php if ($invoice['authorized_person']): ?>
+            <div style="margin-bottom: 15px; padding-bottom: 10px;">
+                <table width="100%" style="margin-bottom:0; padding-bottom:0;"><tr>
+                    <td width="50%" style="font-size: 10pt;"><strong>Овластено лице:</strong> <?php echo htmlspecialchars($invoice['authorized_person']); ?></td>
+                    <td width="50%" style="font-size: 10pt;">
+                        <?php if ($invoice['fiscal_receipt_number']): ?>
+                            <strong>Фискален број:</strong> <?php echo htmlspecialchars($invoice['fiscal_receipt_number']); ?>
+                        <?php endif; ?>
+                    </td>
+                </tr></table>
+            </div>
+            <?php endif; ?>
             <!-- ITEMS TABLE: use previous improved style here -->
             <div class="items-table">
                 <table class="table" style="border-collapse: collapse; font-size: 10pt;">
@@ -286,7 +222,7 @@ foreach ($items as $item) {
                         <?php if (!empty($items)): ?>
                             <?php $row_num = 0; foreach ($items as $item): $row_bg = ($row_num % 2 == 0) ? '#fff' : '#f7faff'; ?>
                                 <tr style="background: <?php echo $row_bg; ?>;">
-                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: left; font-size: 10pt; "><?php echo htmlspecialchars($item['description']); ?></td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: left; font-size: 10pt; "><?php echo htmlspecialchars($item['item_name']); ?></td>
                                     <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt; "><?php echo $item['quantity']; ?></td>
                                     <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt; "><?php echo number_format($item['unit_price'], 2); ?> <?php echo $currency; ?></td>
                                     <?php if ($has_item_discount): ?>
@@ -339,7 +275,17 @@ foreach ($items as $item) {
                     <div style="font-size: 10pt; color: #856404; line-height: 1.4;"> <?php echo nl2br(htmlspecialchars($invoice['notes'])); ?> </div>
                 </div>
             <?php endif; ?>
-            <div style="margin-top: 60px;">
+            
+            <!-- LEGAL FOOTER -->
+            <?php if (!empty($company['legal_footer'])): ?>
+            <div style="margin-top: 40px; padding: 15px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px;">
+                <div style="font-size: 9pt; color: #666; text-align: center; line-height: 1.4;">
+                    <?php echo htmlspecialchars($company['legal_footer']); ?>
+                </div>
+            </div>
+            <?php endif; ?>
+            
+            <div style="margin-top: 40px;">
                 <table width="100%" style="font-size: 11pt;">
                     <tr>
                         <td width="45%" style="text-align: left; vertical-align: bottom;">_________________________<br><span style="font-size:10pt;">Потпис на испраќач</span></td>
@@ -378,17 +324,4 @@ foreach ($items as $item) {
 
     </div>
 
-    <!-- Footer -->
-    <footer class="bg-dark mt-5 py-3 no-print">
-        <div class="container">
-            <div class="row">
-                <div class="col-md-12 text-center">
-                    <p class="mb-0" style="color: #38BDF8;">Custom Invoicing System made by <strong><a href="https://ddsolutions.com.mk/" target="_blank" style="color: #38BDF8; text-decoration: none;">DDSolutions</a></strong></p>
-                </div>
-            </div>
-        </div>
-    </footer>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html> 
+<?php include 'includes/footer.php'; ?> 

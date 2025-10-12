@@ -9,6 +9,7 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 require_once 'config/database.php';
 require_once 'includes/company_helper.php';
 $company = getCompanySettings($pdo);
+$page_title = 'Нова понуда';
 $currency = $company['currency'] ?? 'MKD';
 
 // Get all clients for the dropdown
@@ -22,12 +23,12 @@ $services = $stmt->fetchAll();
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $client_id = !empty($_POST['client_id']) ? $_POST['client_id'] : null;
-    $issue_date = $_POST['issue_date'];
-    $valid_until = $_POST['valid_until'];
-    $tax_rate = floatval($_POST['tax_rate']);
+    $issue_date = $_POST['issue_date'] ?? date('Y-m-d');
+    $valid_until = $_POST['valid_until'] ?? date('Y-m-d', strtotime('+30 days'));
+    $tax_rate = floatval($_POST['tax_rate'] ?? 0);
     $global_discount_rate = floatval($_POST['global_discount_rate'] ?? 0);
     $is_global_discount = isset($_POST['is_global_discount']) ? 1 : 0;
-    $notes = trim($_POST['notes']);
+    $notes = trim($_POST['notes'] ?? '');
     $is_vat_obvrznik = isset($_POST['is_vat_obvrznik']) ? 1 : 0;
     
     // Get line items
@@ -91,9 +92,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $tax_amount = $subtotal_after_global_discount * ($tax_rate / 100);
             $total_amount = $subtotal_after_global_discount + $tax_amount;
             
+            // Get payment type and advance amount
+            $payment_type = $_POST['payment_type'] ?? 'full';
+            $advance_amount = floatval($_POST['advance_amount'] ?? 0);
+            $remaining_amount = $total_amount - $advance_amount;
+            
             // Create offer
-            $stmt = $pdo->prepare("INSERT INTO offers (client_id, offer_number, issue_date, valid_until, subtotal, tax_rate, tax_amount, total_amount, notes, is_vat_obvrznik, global_discount_rate, global_discount_amount, is_global_discount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$client_id, $offer_number, $issue_date, $valid_until, $subtotal, $tax_rate, $tax_amount, $total_amount, $notes, $is_vat_obvrznik, $global_discount_rate, $global_discount_amount, $is_global_discount]);
+            $stmt = $pdo->prepare("INSERT INTO offers (client_id, offer_number, issue_date, valid_until, subtotal, tax_rate, tax_amount, total_amount, notes, is_vat_obvrznik, global_discount_rate, global_discount_amount, is_global_discount, payment_type, advance_amount, remaining_amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$client_id, $offer_number, $issue_date, $valid_until, $subtotal, $tax_rate, $tax_amount, $total_amount, $notes, $is_vat_obvrznik, $global_discount_rate, $global_discount_amount, $is_global_discount, $payment_type, $advance_amount, $remaining_amount]);
             $offer_id = $pdo->lastInsertId();
             
             // Create offer items
@@ -116,89 +122,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $default_issue_date = date('Y-m-d');
 $default_valid_until = date('Y-m-d', strtotime('+30 days'));
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Create Offer - Invoicing System</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        body {
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        .main-content {
-            flex: 1;
-        }
-        footer {
-            margin-top: auto;
-        }
-        .line-item-row {
-            background-color: #f8f9fa;
-            border-radius: 5px;
-            padding: 15px;
-            margin-bottom: 15px;
-        }
-        .remove-line-item {
-            color: #dc3545;
-            cursor: pointer;
-        }
-        .service-select {
-            margin-bottom: 10px;
-        }
-        .discount-checkbox {
-            background-color: #fff3cd;
-            border: 1px solid #ffeaa7;
-            border-radius: 4px;
-            padding: 8px;
-            margin-bottom: 10px;
-        }
-        .discount-checkbox .form-check {
-            margin-bottom: 0;
-        }
-        .short-input { max-width: 200px; min-width: 70px; }
-        .big-checkbox-label { font-size: 1rem; font-weight: 400; }
-    </style>
-</head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container">
-            <a class="navbar-brand" href="#">Систем за Фактури</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="dashboard.php">Почетна</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="invoices.php">Фактури</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link active" href="offers.php">Понуди</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="clients.php">Клиенти</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="services.php">Услуги</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="company_settings.php">Поставки</a>
-                    </li>
-                </ul>
-                <ul class="navbar-nav">
-                    <li class="nav-item">
-                        <a class="nav-link" href="logout.php">Одјава</a>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </nav>
+<?php include 'includes/header.php'; ?>
+<?php include 'includes/navbar.php'; ?>
+    
 
     <div class="container mt-4 main-content">
         <div class="d-flex justify-content-between align-items-center mb-4">
@@ -285,6 +211,23 @@ $default_valid_until = date('Y-m-d', strtotime('+30 days'));
                                     </div>
                                 </div>
                             </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="payment_type" class="form-label">Тип на плаќање</label>
+                                        <select class="form-select" id="payment_type" name="payment_type" onchange="toggleAdvanceInput()">
+                                            <option value="full">Целосно плаќање</option>
+                                            <option value="advance">Авансно плаќање</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3" id="advance_amount_group" style="display: none;">
+                                        <label for="advance_amount" class="form-label">Износ на аванс</label>
+                                        <input type="number" step="0.01" min="0" class="form-control" id="advance_amount" name="advance_amount" value="0" onchange="calculateTotals()">
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -341,18 +284,9 @@ $default_valid_until = date('Y-m-d', strtotime('+30 days'));
 
     </div>
 
-    <!-- Footer -->
-    <footer class="bg-dark mt-5 py-3">
-        <div class="container">
-            <div class="row">
-                <div class="col-md-12 text-center">
-                    <p class="mb-0" style="color: #38BDF8;">Custom Invoicing System made by <strong><a href="https://ddsolutions.com.mk/" target="_blank" style="color: #38BDF8; text-decoration: none;">DDSolutions</a></strong></p>
-                </div>
-            </div>
-        </div>
-    </footer>
+    
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
     <script>
         // Services data for JavaScript
         const services = <?php echo json_encode($services); ?>;
@@ -458,6 +392,16 @@ $default_valid_until = date('Y-m-d', strtotime('+30 days'));
             calculateTotals();
         }
 
+        function toggleAdvanceInput() {
+            const paymentType = document.getElementById('payment_type').value;
+            const advanceGroup = document.getElementById('advance_amount_group');
+            if (paymentType === 'advance') {
+                advanceGroup.style.display = 'block';
+            } else {
+                advanceGroup.style.display = 'none';
+            }
+        }
+
         function calculateTotals() {
             let subtotal = 0;
             const lineItems = document.querySelectorAll('.line-item-row');
@@ -542,5 +486,6 @@ $default_valid_until = date('Y-m-d', strtotime('+30 days'));
             document.getElementById('global_discount_rate').addEventListener('change', calculateTotals);
         });
     </script>
+<?php include 'includes/footer.php'; ?>
 </body>
 </html> 

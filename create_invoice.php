@@ -9,6 +9,7 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 require_once 'config/database.php';
 require_once 'includes/company_helper.php';
 $company = getCompanySettings($pdo);
+$page_title = 'Нова фактура';
 $currency = $company['currency'] ?? 'MKD';
 
 // Get all clients for the dropdown
@@ -29,6 +30,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $is_global_discount = isset($_POST['is_global_discount']) ? 1 : 0;
     $notes = trim($_POST['notes']);
     $is_vat_obvrznik = isset($_POST['is_vat_obvrznik']) ? 1 : 0;
+    $supply_date = $_POST['supply_date'] ?? $issue_date;
+    $authorized_person = trim($_POST['authorized_person'] ?? '');
+    $payment_method = $_POST['payment_method'] ?? 'bank_transfer';
+    $fiscal_receipt_number = trim($_POST['fiscal_receipt_number'] ?? '');
     
     // Get line items
     $line_items = [];
@@ -92,8 +97,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $total_amount = $subtotal_after_global_discount + $tax_amount;
             
             // Create invoice
-            $stmt = $pdo->prepare("INSERT INTO invoices (client_id, invoice_number, issue_date, due_date, subtotal, tax_rate, tax_amount, total_amount, notes, is_vat_obvrznik, global_discount_rate, global_discount_amount, is_global_discount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$client_id, $invoice_number, $issue_date, $due_date, $subtotal, $tax_rate, $tax_amount, $total_amount, $notes, $is_vat_obvrznik, $global_discount_rate, $global_discount_amount, $is_global_discount]);
+            $stmt = $pdo->prepare("INSERT INTO invoices (client_id, invoice_number, issue_date, due_date, subtotal, tax_rate, tax_amount, total_amount, notes, is_vat_obvrznik, global_discount_rate, global_discount_amount, is_global_discount, supply_date, authorized_person, payment_method, fiscal_receipt_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$client_id, $invoice_number, $issue_date, $due_date, $subtotal, $tax_rate, $tax_amount, $total_amount, $notes, $is_vat_obvrznik, $global_discount_rate, $global_discount_amount, $is_global_discount, $supply_date, $authorized_person, $payment_method, $fiscal_receipt_number]);
             $invoice_id = $pdo->lastInsertId();
             
             // Create invoice items
@@ -116,89 +121,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $default_issue_date = date('Y-m-d');
 $default_due_date = date('Y-m-d', strtotime('+30 days'));
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Create Invoice - Invoicing System</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        body {
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        .main-content {
-            flex: 1;
-        }
-        footer {
-            margin-top: auto;
-        }
-        .line-item-row {
-            background-color: #f8f9fa;
-            border-radius: 5px;
-            padding: 15px;
-            margin-bottom: 15px;
-        }
-        .remove-line-item {
-            color: #dc3545;
-            cursor: pointer;
-        }
-        .service-select {
-            margin-bottom: 10px;
-        }
-        .discount-checkbox {
-            background-color: #fff3cd;
-            border: 1px solid #ffeaa7;
-            border-radius: 4px;
-            padding: 8px;
-            margin-bottom: 10px;
-        }
-        .discount-checkbox .form-check {
-            margin-bottom: 0;
-        }
-        .short-input { max-width: 200px; min-width: 70px; }
-        .big-checkbox-label { font-size: 1rem; font-weight: 400; }
-    </style>
-</head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container">
-            <a class="navbar-brand" href="#">Систем за Фактури</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="dashboard.php">Почетна</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link active" href="invoices.php">Фактури</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="offers.php">Понуди</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="clients.php">Клиенти</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="services.php">Услуги</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="company_settings.php">Поставки</a>
-                    </li>
-                </ul>
-                <ul class="navbar-nav">
-                    <li class="nav-item">
-                        <a class="nav-link" href="logout.php">Одјава</a>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </nav>
+<?php include 'includes/header.php'; ?>
+<?php include 'includes/navbar.php'; ?>
+    
 
     <div class="container mt-4 main-content">
         <div class="d-flex justify-content-between align-items-center mb-4">
@@ -249,6 +174,58 @@ $default_due_date = date('Y-m-d', strtotime('+30 days'));
                                     <div class="mb-3">
                                         <label for="due_date" class="form-label">Датум за доспевање *</label>
                                         <input type="date" class="form-control" id="due_date" name="due_date" value="<?php echo $default_due_date; ?>" required>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Legal Requirements Row -->
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="supply_date" class="form-label">Датум на испорака *</label>
+                                        <input type="date" class="form-control" id="supply_date" name="supply_date" value="<?php echo $default_issue_date; ?>" required>
+                                        <small class="form-text text-muted">Датум кога стоките/услугите се испорачани</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="authorized_person" class="form-label">Овластено лице *</label>
+                                        <input type="text" class="form-control" id="authorized_person" name="authorized_person" placeholder="Име и презиме" required>
+                                        <small class="form-text text-muted">Лице кое го издава фактурата</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="payment_method" class="form-label">Начин на плаќање *</label>
+                                        <select class="form-select" id="payment_method" name="payment_method" required>
+                                            <option value="bank_transfer">Банкарски трансфер</option>
+                                            <option value="cash">Готовина</option>
+                                            <option value="card">Картичка</option>
+                                            <option value="check">Чек</option>
+                                            <option value="other">Друго</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Additional Legal Fields Row -->
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="fiscal_receipt_number" class="form-label">Фискален број</label>
+                                        <input type="text" class="form-control" id="fiscal_receipt_number" name="fiscal_receipt_number" placeholder="Фискален број (опционално)">
+                                        <small class="form-text text-muted">За одредени видови на трансакции</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="is_vat_obvrznik" name="is_vat_obvrznik" value="1">
+                                            <label class="form-check-label" for="is_vat_obvrznik">
+                                                ДДВ обврзник
+                                            </label>
+                                        </div>
+                                        <small class="form-text text-muted">Проверете ако сте регистрирани за ДДВ</small>
                                     </div>
                                 </div>
                             </div>
@@ -342,18 +319,9 @@ $default_due_date = date('Y-m-d', strtotime('+30 days'));
 
     </div>
 
-    <!-- Footer -->
-    <footer class="bg-dark mt-5 py-3">
-        <div class="container">
-            <div class="row">
-                <div class="col-md-12 text-center">
-                    <p class="mb-0" style="color: #38BDF8;">Custom Invoicing System made by <strong><a href="https://ddsolutions.com.mk/" target="_blank" style="color: #38BDF8; text-decoration: none;">DDSolutions</a></strong></p>
-                </div>
-            </div>
-        </div>
-    </footer>
+    
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
     <script>
         // Services data for JavaScript
         const services = <?php echo json_encode($services); ?>;
@@ -548,5 +516,6 @@ $default_due_date = date('Y-m-d', strtotime('+30 days'));
             document.getElementById('global_discount_rate').addEventListener('change', calculateTotals);
         });
     </script>
+<?php include 'includes/footer.php'; ?>
 </body>
 </html> 

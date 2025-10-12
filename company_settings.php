@@ -7,6 +7,8 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 }
 
 require_once 'config/database.php';
+require_once 'includes/company_helper.php';
+$company = getCompanySettings($pdo);
 
 // Get current company settings first
 $stmt = $pdo->query("SELECT * FROM company_settings LIMIT 1");
@@ -22,6 +24,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $tax_number = $_POST['tax_number'];
     $bank_account = $_POST['bank_account'];
     $currency = $_POST['currency'] ?? 'MKD';
+    $vat_registration_number = $_POST['vat_registration_number'] ?? '';
+    $authorized_person = $_POST['authorized_person'] ?? '';
+    $legal_footer = $_POST['legal_footer'] ?? '';
     
     $logo_path = null;
     
@@ -56,16 +61,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($exists > 0) {
             // Update existing settings
             if ($logo_path) {
-                $stmt = $pdo->prepare("UPDATE company_settings SET company_name = ?, address = ?, phone = ?, email = ?, website = ?, tax_number = ?, bank_account = ?, logo_path = ?, currency = ? WHERE id = 1");
-                $stmt->execute([$company_name, $address, $phone, $email, $website, $tax_number, $bank_account, $logo_path, $currency]);
+                $stmt = $pdo->prepare("UPDATE company_settings SET company_name = ?, address = ?, phone = ?, email = ?, website = ?, tax_number = ?, bank_account = ?, logo_path = ?, currency = ?, vat_registration_number = ?, authorized_person = ?, legal_footer = ? WHERE id = 1");
+                $stmt->execute([$company_name, $address, $phone, $email, $website, $tax_number, $bank_account, $logo_path, $currency, $vat_registration_number, $authorized_person, $legal_footer]);
             } else {
-                $stmt = $pdo->prepare("UPDATE company_settings SET company_name = ?, address = ?, phone = ?, email = ?, website = ?, tax_number = ?, bank_account = ?, currency = ? WHERE id = 1");
-                $stmt->execute([$company_name, $address, $phone, $email, $website, $tax_number, $bank_account, $currency]);
+                $stmt = $pdo->prepare("UPDATE company_settings SET company_name = ?, address = ?, phone = ?, email = ?, website = ?, tax_number = ?, bank_account = ?, currency = ?, vat_registration_number = ?, authorized_person = ?, legal_footer = ? WHERE id = 1");
+                $stmt->execute([$company_name, $address, $phone, $email, $website, $tax_number, $bank_account, $currency, $vat_registration_number, $authorized_person, $legal_footer]);
             }
         } else {
             // Insert new settings
-            $stmt = $pdo->prepare("INSERT INTO company_settings (company_name, address, phone, email, website, tax_number, bank_account, logo_path, currency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$company_name, $address, $phone, $email, $website, $tax_number, $bank_account, $logo_path, $currency]);
+            $stmt = $pdo->prepare("INSERT INTO company_settings (company_name, address, phone, email, website, tax_number, bank_account, logo_path, currency, vat_registration_number, authorized_person, legal_footer) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$company_name, $address, $phone, $email, $website, $tax_number, $bank_account, $logo_path, $currency, $vat_registration_number, $authorized_person, $legal_footer]);
         }
         
         $success = "Поставките на компанијата успешно ажурирани!";
@@ -76,75 +81,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Company Settings - Invoicing System</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        body {
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        .main-content {
-            flex: 1;
-        }
-        footer {
-            margin-top: auto;
-        }
-    </style>
-</head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container">
-            <?php
-            $logo_path = '/uploads/company_logo.png';
-            $upload_dir = __DIR__ . '/uploads/';
-            $logo_files = glob($upload_dir . 'company_logo*.png');
-            if ($logo_files && count($logo_files) > 0) {
-                $logo_path = '/uploads/' . basename($logo_files[0]);
-            }
-            ?>
-            <a class="navbar-brand d-flex align-items-center" href="#">
-                <img src="<?php echo $logo_path; ?>" alt="DDS Logo" style="height:32px; width:auto; margin-right:10px;">
-                Фактури и Понуди
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="dashboard.php">Почетна</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="invoices.php">Фактури</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="offers.php">Понуди</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="clients.php">Клиенти</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="services.php">Услуги</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link active" href="company_settings.php">Поставки</a>
-                    </li>
-                </ul>
-                <ul class="navbar-nav">
-                    <li class="nav-item">
-                        <a class="nav-link" href="logout.php">Одјава</a>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </nav>
+<?php include 'includes/header.php'; ?>
+<?php include 'includes/navbar.php'; ?>
+    
 
     <div class="container mt-4 main-content">
         <div class="row justify-content-center">
@@ -250,6 +189,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 </div>
                             </div>
 
+                            <!-- Legal Requirements Section -->
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="vat_registration_number" class="form-label">ДДВ регистрациски број</label>
+                                        <input type="text" class="form-control" id="vat_registration_number" name="vat_registration_number" 
+                                               value="<?php echo htmlspecialchars($company['vat_registration_number'] ?? ''); ?>">
+                                        <small class="form-text text-muted">ДДВ регистрациски број (различен од даночниот број)</small>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="authorized_person" class="form-label">Овластено лице</label>
+                                        <input type="text" class="form-control" id="authorized_person" name="authorized_person" 
+                                               value="<?php echo htmlspecialchars($company['authorized_person'] ?? ''); ?>">
+                                        <small class="form-text text-muted">Лице кое е овластено да издава фактури</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="legal_footer" class="form-label">Правен текст за фактури</label>
+                                <textarea class="form-control" id="legal_footer" name="legal_footer" rows="3" placeholder="Оваа фактура е издадена согласно со Законот за ДДВ на Република Македонија..."><?php echo htmlspecialchars($company['legal_footer'] ?? ''); ?></textarea>
+                                <small class="form-text text-muted">Правен текст кој ќе се прикажува на сите фактури и про фактури</small>
+                            </div>
+
                             <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                                 <a href="dashboard.php" class="btn btn-secondary me-md-2">Откажи</a>
                                 <button type="submit" class="btn btn-primary">Зачувај</button>
@@ -310,17 +275,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     </div>
 
-    <!-- Footer -->
-    <footer class="bg-dark mt-5 py-3">
-        <div class="container">
-            <div class="row">
-                <div class="col-md-12 text-center">
-                    <p class="mb-0" style="color: #38BDF8;">Custom Invoicing System made by <strong><a href="https://ddsolutions.com.mk/" target="_blank" style="color: #38BDF8; text-decoration: none;">DDSolutions</a></strong></p>
-                </div>
-            </div>
-        </div>
-    </footer>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<?php include 'includes/footer.php'; ?>
 </body>
 </html> 

@@ -1,3 +1,5 @@
+
+
 6.10.0 (2025-05-27)
 	- Embedded files support (Factur-X 1.07 / ZUGFeRD 2.3) #789
 

@@ -12,7 +12,8 @@ function getCompanySettings($pdo) {
             'email' => 'info@yourcompany.com',
             'website' => 'www.yourcompany.com',
             'tax_number' => '',
-            'bank_account' => ''
+            'bank_account' => '',
+            'currency' => 'MKD'
         ];
     }
     

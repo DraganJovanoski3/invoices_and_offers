@@ -1,5 +1,4 @@
 <?php
-// Enable error reporting for debugging
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
@@ -14,11 +13,13 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
     exit;
 }
 
+$error = null;
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     require_once 'config/database.php';
     
-    $username = $_POST['username'];
-    $password = $_POST['password'];
+    $username = isset($_POST['username']) ? trim($_POST['username']) : '';
+    $password = isset($_POST['password']) ? $_POST['password'] : '';
     
     $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
     $stmt->execute([$username]);
@@ -28,12 +29,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['logged_in'] = true;
         $_SESSION['user_id'] = $user['id'];
         session_write_close();
-        // Debug output to check if redirect is reached
-        if (headers_sent($file, $line)) {
-            echo "<b>Headers already sent</b> in $file on line $line<br>";
-            echo "<b>Session:</b> "; var_dump($_SESSION);
-            exit;
-        }
         header('Location: dashboard.php');
         exit;
     } else {
@@ -66,13 +61,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <div class="container">
         <div class="login-container">
             <h2 class="text-center mb-4">Invoicing System</h2>
-            <?php if (isset($error)): ?>
+            <?php if ($error): ?>
                 <div class="alert alert-danger"><?php echo $error; ?></div>
             <?php endif; ?>
             <form method="POST" action="">
                 <div class="mb-3">
                     <label for="username" class="form-label">Username</label>
-                    <input type="text" class="form-control" id="username" name="username" required>
+                    <input type="text" class="form-control" id="username" name="username" required autofocus>
                 </div>
                 <div class="mb-3">
                     <label for="password" class="form-label">Password</label>

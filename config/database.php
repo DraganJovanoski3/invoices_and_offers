@@ -1,14 +1,15 @@
 <?php
-// Database Configuration for ddsolutionscomm_invoices_app
-// $host = 'localhost';
-// $dbname = 'ddsolutionscomm_invoices_app';
-// $username = 'ddsolutionscomm_invoices-admin'; // Default local MySQL user
-// $password = '123dragan1230405'; // Common local development password (empty)
-
+// Database Configuration for local XAMPP development
 $host = 'localhost';
-$dbname = 'invoices_app';
+$dbname = 'invoices_and_offers';
 $username = 'root'; // Default local MySQL user
 $password = ''; // Common local development password (empty)
+
+// Production configuration (uncomment for production)
+// $host = 'localhost';
+// $dbname = 'mrrbbkvz_invoices_app';
+// $username = 'mrrbbkvz_admin_saniko';
+// $password = 'qjNq8rG?z%H7';
 
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);

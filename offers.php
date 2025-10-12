@@ -7,6 +7,7 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 }
 
 require_once 'config/database.php';
+require_once 'includes/company_helper.php';
 
 // Handle delete form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete') {
@@ -38,80 +39,12 @@ $stmt->execute([$current_year]);
 $offer_count = $stmt->fetchColumn();
 $next_offer_number = $current_year . '-' . str_pad($offer_count + 1, 3, '0', STR_PAD_LEFT);
 
-// Get company settings for currency
-$stmt = $pdo->prepare("SELECT currency FROM company_settings WHERE id = ?");
-$stmt->execute([1]); // Assuming company_settings table has an ID of 1 for the main company
-$company = $stmt->fetch(PDO::FETCH_ASSOC);
+// Get company settings
+$company = getCompanySettings($pdo);
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Offers - Invoicing System</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        body {
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        .main-content {
-            flex: 1;
-        }
-        footer {
-            margin-top: auto;
-        }
-    </style>
-</head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container">
-            <a class="navbar-brand d-flex align-items-center" href="#">
-                <?php
-                $logo_path = '/uploads/company_logo.png';
-                $upload_dir = __DIR__ . '/uploads/';
-                $logo_files = glob($upload_dir . 'company_logo*.png');
-                if ($logo_files && count($logo_files) > 0) {
-                    $logo_path = '/uploads/' . basename($logo_files[0]);
-                }
-                ?>
-                <img src="<?php echo $logo_path; ?>" alt="DDS Logo" style="height:32px; width:auto; margin-right:10px;">
-                Фактури и Понуди
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="dashboard.php">Почетна</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="invoices.php">Фактури</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link active" href="offers.php">Понуди</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="clients.php">Клиенти</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="services.php">Услуги</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="company_settings.php">Поставки</a>
-                    </li>
-                </ul>
-                <ul class="navbar-nav">
-                    <li class="nav-item">
-                        <a class="nav-link" href="logout.php">Одјава</a>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </nav>
+<?php include 'includes/header.php'; ?>
+<?php include 'includes/navbar.php'; ?>
+    
 
     <div class="container mt-4 main-content">
         <div class="d-flex justify-content-between align-items-center mb-4">
@@ -162,6 +95,7 @@ $company = $stmt->fetch(PDO::FETCH_ASSOC);
                                     </td>
                                     <td>
                                         <a href="view_offer.php?id=<?php echo $offer['id']; ?>" class="btn btn-sm btn-outline-primary">Види</a>
+                                        <a href="edit_offer.php?id=<?php echo $offer['id']; ?>" class="btn btn-sm btn-outline-warning">Уреди</a>
                                         <form method="POST" style="display:inline;" onsubmit="return confirm('Дали сте сигурни дека сакате да ја избришете понудата?');">
                                             <input type="hidden" name="action" value="delete">
                                             <input type="hidden" name="offer_id" value="<?php echo $offer['id']; ?>">
@@ -207,18 +141,9 @@ $company = $stmt->fetch(PDO::FETCH_ASSOC);
 
     </div>
 
-    <!-- Footer -->
-    <footer class="bg-dark mt-5 py-3">
-        <div class="container">
-            <div class="row">
-                <div class="col-md-12 text-center">
-                    <p class="mb-0" style="color: #38BDF8;">Custom Invoicing System made by <strong><a href="https://ddsolutions.com.mk/" target="_blank" style="color: #38BDF8; text-decoration: none;">DDSolutions</a></strong></p>
-                </div>
-            </div>
-        </div>
-    </footer>
+    
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
     <script>
         function deleteOffer(offerId, offerNumber) {
             document.getElementById('deleteOfferId').value = offerId;
@@ -226,5 +151,6 @@ $company = $stmt->fetch(PDO::FETCH_ASSOC);
             new bootstrap.Modal(document.getElementById('deleteOfferModal')).show();
         }
     </script>
+<?php include 'includes/footer.php'; ?>
 </body>
 </html> 

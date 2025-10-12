@@ -45,8 +45,150 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
     exit;
 }
 
+// Check if an invoice already exists for this offer
+$invoice_id_for_offer = null;
+$stmt = $pdo->prepare("SELECT id FROM invoices WHERE offer_id = ?");
+$stmt->execute([$offer_id]);
+$invoice_for_offer = $stmt->fetch();
+if ($invoice_for_offer) {
+    $invoice_id_for_offer = $invoice_for_offer['id'];
+}
+
+// Handle generate invoice from offer
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate_invoice_from_offer'])) {
+    // Only allow if no invoice exists for this offer
+    if (!$invoice_id_for_offer && $offer['status'] === 'accepted') {
+        try {
+            $pdo->beginTransaction();
+            // Generate automatic invoice number
+            $current_year = date('Y');
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM invoices WHERE YEAR(created_at) = ?");
+            $stmt->execute([$current_year]);
+            $invoice_count = $stmt->fetchColumn();
+            $invoice_number = $current_year . '-' . str_pad($invoice_count + 1, 3, '0', STR_PAD_LEFT);
+
+            // Set default due date (30 days from issue_date)
+            $issue_date = $offer['issue_date'];
+            $due_date = date('Y-m-d', strtotime($issue_date . ' +30 days'));
+
+            // Insert invoice
+            $stmt = $pdo->prepare("INSERT INTO invoices (client_id, offer_id, invoice_number, issue_date, due_date, subtotal, tax_rate, tax_amount, total_amount, notes, is_vat_obvrznik, global_discount_rate, global_discount_amount, is_global_discount, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([
+                $offer['client_id'],
+                $offer_id,
+                $invoice_number,
+                $issue_date,
+                $due_date,
+                $offer['subtotal'],
+                $offer['tax_rate'],
+                $offer['tax_amount'],
+                $offer['total_amount'],
+                $offer['notes'],
+                $offer['is_vat_obvrznik'] ?? 0,
+                $offer['global_discount_rate'] ?? 0,
+                $offer['global_discount_amount'] ?? 0,
+                $offer['is_global_discount'] ?? 0,
+                'draft'
+            ]);
+            $new_invoice_id = $pdo->lastInsertId();
+
+            // Copy offer items to invoice items
+            $stmt = $pdo->prepare("INSERT INTO invoice_items (invoice_id, service_id, item_name, description, quantity, unit_price, total_price, discount_rate, discount_amount, is_discount, final_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            foreach ($items as $item) {
+                $stmt->execute([
+                    $new_invoice_id,
+                    $item['service_id'],
+                    $item['item_name'],
+                    $item['description'],
+                    $item['quantity'],
+                    $item['unit_price'],
+                    $item['total_price'],
+                    $item['discount_rate'] ?? 0,
+                    $item['discount_amount'] ?? 0,
+                    $item['is_discount'] ?? 0,
+                    $item['final_price'] ?? $item['total_price']
+                ]);
+            }
+            $pdo->commit();
+            header("Location: view_invoice.php?id=$new_invoice_id");
+            exit;
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            $error = "Грешка при генерирање на фактура: " . $e->getMessage();
+        }
+    }
+}
+
+// Handle generate pre-invoice from offer
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate_preinvoice_from_offer'])) {
+    // Only allow if offer is accepted and has advance payment
+    if ($offer['status'] === 'accepted' && $offer['payment_type'] === 'advance') {
+        try {
+            $pdo->beginTransaction();
+            // Generate automatic pre-invoice number
+            $current_year = date('Y');
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM pre_invoices WHERE YEAR(created_at) = ?");
+            $stmt->execute([$current_year]);
+            $preinvoice_count = $stmt->fetchColumn();
+            $preinvoice_number = $current_year . '-PF-' . str_pad($preinvoice_count + 1, 3, '0', STR_PAD_LEFT);
+
+            // Set default due date (30 days from issue_date)
+            $issue_date = $offer['issue_date'];
+            $due_date = date('Y-m-d', strtotime($issue_date . ' +30 days'));
+
+            // Insert pre-invoice
+            $stmt = $pdo->prepare("INSERT INTO pre_invoices (client_id, preinvoice_number, issue_date, due_date, subtotal, tax_rate, tax_amount, total_amount, payment_type, advance_amount, remaining_amount, notes, is_vat_obvrznik, global_discount_rate, global_discount_amount, is_global_discount, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([
+                $offer['client_id'],
+                $preinvoice_number,
+                $issue_date,
+                $due_date,
+                $offer['subtotal'],
+                $offer['tax_rate'],
+                $offer['tax_amount'],
+                $offer['total_amount'],
+                'advance',
+                $offer['advance_amount'],
+                $offer['remaining_amount'],
+                $offer['notes'],
+                $offer['is_vat_obvrznik'] ?? 0,
+                $offer['global_discount_rate'] ?? 0,
+                $offer['global_discount_amount'] ?? 0,
+                $offer['is_global_discount'] ?? 0,
+                'draft'
+            ]);
+            $new_preinvoice_id = $pdo->lastInsertId();
+
+            // Copy offer items to pre-invoice items
+            $stmt = $pdo->prepare("INSERT INTO pre_invoice_items (preinvoice_id, service_id, item_name, description, quantity, unit_price, total_price, discount_rate, discount_amount, is_discount, final_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            foreach ($items as $item) {
+                $stmt->execute([
+                    $new_preinvoice_id,
+                    $item['service_id'],
+                    $item['item_name'],
+                    $item['description'],
+                    $item['quantity'],
+                    $item['unit_price'],
+                    $item['total_price'],
+                    $item['discount_rate'] ?? 0,
+                    $item['discount_amount'] ?? 0,
+                    $item['is_discount'] ?? 0,
+                    $item['final_price'] ?? $item['total_price']
+                ]);
+            }
+            $pdo->commit();
+            header("Location: view_preinvoice.php?id=$new_preinvoice_id");
+            exit;
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            $error = "Грешка при генерирање на Про Фактура: " . $e->getMessage();
+        }
+    }
+}
+
 // Get company settings
 $company = getCompanySettings($pdo);
+$page_title = 'Понуда';
 
 $logo_path = '/uploads/company_logo.png';
 $upload_dir = __DIR__ . '/uploads/';
@@ -63,92 +205,15 @@ foreach ($items as $item) {
         break;
     }
 }
-?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Offer #<?php echo $offer['offer_number']; ?> - Invoicing System</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        .offer-container {
-            max-width: 800px;
-            margin: 0 auto;
-            background: white;
-            padding: 30px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        .offer-header {
-            border-bottom: 2px solid #28a745;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
-        }
-        .company-info {
-            text-align: right;
-        }
-        .client-info {
-            margin-bottom: 30px;
-        }
-        .offer-details {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 5px;
-            margin-bottom: 30px;
-        }
-        .items-table {
-            margin-bottom: 30px;
-        }
-        .total-section {
-            border-top: 2px solid #dee2e6;
-            padding-top: 20px;
-        }
-        @media print {
-            .no-print {
-                display: none !important;
-            }
-            .offer-container {
-                box-shadow: none;
-                padding: 0;
-            }
-        }
-    </style>
-</head>
-<body class="bg-light">
-    <div class="no-print">
-        <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-            <div class="container">
-                <a class="navbar-brand d-flex align-items-center" href="#">
-                    <img src="<?php echo $logo_path; ?>" alt="DDS Logo" style="height:32px; width:auto; margin-right:10px;">
-                    Фактури и Понуди
-                </a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                <div class="collapse navbar-collapse" id="navbarNav">
-                    <ul class="navbar-nav me-auto">
-                        <li class="nav-item">
-                            <a class="nav-link" href="dashboard.php">Почетна</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="invoices.php">Фактури</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link active" href="offers.php">Понуди</a>
-                        </li>
-                    </ul>
-                    <ul class="navbar-nav">
-                        <li class="nav-item">
-                            <a class="nav-link" href="logout.php">Одјава</a>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-        </nav>
-    </div>
 
-    <div class="container mt-4">
+// Get company settings
+$company = getCompanySettings($pdo);
+$page_title = 'Понуда';
+?>
+<?php include 'includes/header.php'; ?>
+<?php include 'includes/navbar.php'; ?>
+
+<div class="container mt-4">
         <div class="no-print mb-3">
             <a href="offers.php" class="btn btn-secondary">
                 <i class="bi bi-arrow-left"></i> Назад кон понуди
@@ -264,7 +329,7 @@ foreach ($items as $item) {
 <?php if (!empty($items)): ?>
 <?php $row_num = 0; foreach ($items as $item): $row_bg = ($row_num % 2 == 0) ? '#fff' : '#f7faff'; ?>
 <tr style="background: <?php echo $row_bg; ?>;">
-<td style="border: 1px solid #b6d4ef; padding: 8px; text-align: left; font-size: 10pt; "><?php echo htmlspecialchars($item['description']); ?></td>
+<td style="border: 1px solid #b6d4ef; padding: 8px; text-align: left; font-size: 10pt; "><?php echo htmlspecialchars($item['item_name']); ?></td>
 <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt; "><?php echo $item['quantity']; ?></td>
 <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt; "><?php echo number_format($item['unit_price'], 2); ?> <?php echo $currency; ?></td>
 <?php if ($has_item_discount): ?>
@@ -307,6 +372,12 @@ foreach ($items as $item) {
                         <?php endif; ?>
                         <tr><td style="font-size: 10pt; font-weight: normal; color: #333;">Вкупен износ со данок:</td>
                             <td style="text-align: right; font-size: 11pt; font-weight: bold; color: #333;"> <?php echo number_format($offer['total_amount'], 2); ?> <?php echo $currency; ?> </td></tr>
+                        <?php if ($offer['payment_type'] === 'advance'): ?>
+                            <tr><td style="color: #333; font-weight: bold;">Износ на Аванс:</td>
+                                <td style="text-align: right; color: #333; font-weight: bold;">-<?php echo number_format($offer['advance_amount'], 2); ?> <?php echo $currency; ?></td></tr>
+                            <tr><td style="color: #333; font-weight: bold;">Останува за финална фактура:</td>
+                                <td style="text-align: right; color: #333; font-weight: bold;"> <?php echo number_format($offer['remaining_amount'], 2); ?> <?php echo $currency; ?></td></tr>
+                        <?php endif; ?>
                     </table>
                 </td></tr></table>
             </div>
@@ -330,6 +401,46 @@ foreach ($items as $item) {
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-</body>
-</html> 
+    <div class="no-print mt-4 d-flex justify-content-center">
+        <div class="card" style="max-width: 700px; width: 100%;">
+            <div class="card-header">
+                <h5>Ажурирај статус на понуда</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" class="row align-items-end">
+                    <div class="col-md-4">
+                        <label for="status" class="form-label">Статус</label>
+                        <select class="form-select" id="status" name="status">
+                            <option value="draft" <?php echo $offer['status'] === 'draft' ? 'selected' : ''; ?>>Нацрт</option>
+                            <option value="sent" <?php echo $offer['status'] === 'sent' ? 'selected' : ''; ?>>Испратена</option>
+                            <option value="accepted" <?php echo $offer['status'] === 'accepted' ? 'selected' : ''; ?>>Прифатена</option>
+                            <option value="rejected" <?php echo $offer['status'] === 'rejected' ? 'selected' : ''; ?>>Одбиена</option>
+                            <option value="expired" <?php echo $offer['status'] === 'expired' ? 'selected' : ''; ?>>Истечена</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <button type="submit" name="update_status" class="btn btn-primary">Ажурирај</button>
+                    </div>
+                </form>
+                <?php if ($offer['status'] === 'accepted' && !$invoice_id_for_offer): ?>
+                    <form method="POST" class="mt-3">
+                        <button type="submit" name="generate_invoice_from_offer" class="btn btn-success">
+                            Генерирај фактура од оваа понуда
+                        </button>
+                    </form>
+                <?php elseif ($invoice_id_for_offer): ?>
+                    <div class="alert alert-info mt-3">Веќе е генерирана фактура од оваа понуда. <a href="view_invoice.php?id=<?php echo $invoice_id_for_offer; ?>" class="btn btn-link">Види фактура</a></div>
+                <?php endif; ?>
+                
+                <?php if ($offer['status'] === 'accepted'): ?>
+                    <form method="POST" class="mt-3">
+                        <button type="submit" name="generate_preinvoice_from_offer" class="btn btn-warning">
+                            Генерирај Про Фактура
+                        </button>
+                    </form>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+
+<?php include 'includes/footer.php'; ?> 
