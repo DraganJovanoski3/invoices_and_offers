@@ -47,93 +47,118 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $is_discounts = $_POST['is_discount'] ?? [];
 
     $subtotal = 0;
+    
     // Process line items
     for ($i = 0; $i < count($item_names); $i++) {
-        $qty = floatval($quantities[$i] ?? 1);
-        $unit_price = floatval($unit_prices[$i] ?? 0);
-        $discount_rate = floatval($discount_rates[$i] ?? 0);
-        $is_discount = isset($is_discounts[$i]) ? 1 : 0;
-        $discount_amount = $is_discount ? ($unit_price * $qty * $discount_rate / 100) : 0;
-        $total_price = ($unit_price * $qty) - $discount_amount;
-        $final_price = $total_price;
-        $subtotal += $total_price;
-        $line_items[] = [
-            'service_id' => $service_ids[$i] ?? null,
-            'item_name' => $item_names[$i],
-            'description' => $descriptions[$i] ?? '',
-            'quantity' => $qty,
-            'unit_price' => $unit_price,
-            'total_price' => $total_price,
-            'discount_rate' => $discount_rate,
-            'discount_amount' => $discount_amount,
-            'is_discount' => $is_discount,
-            'final_price' => $final_price
-        ];
-    }
-
-    // Calculate global discount
-    $global_discount_amount = $subtotal * ($global_discount_rate / 100);
-    $subtotal_after_global_discount = $subtotal - $global_discount_amount;
-
-    // Calculate totals
-    $tax_amount = $subtotal_after_global_discount * ($tax_rate / 100);
-    $total_amount = $subtotal_after_global_discount + $tax_amount;
-
-    try {
-        $pdo->beginTransaction();
-        // Generate automatic pre-invoice number
-        $current_year = date('Y');
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM pre_invoices WHERE YEAR(created_at) = ?");
-        $stmt->execute([$current_year]);
-        $preinvoice_count = $stmt->fetchColumn();
-        $preinvoice_number = $current_year . '-PF-' . str_pad($preinvoice_count + 1, 3, '0', STR_PAD_LEFT);
-
-        // Insert pre-invoice
-        $stmt = $pdo->prepare("INSERT INTO pre_invoices (client_id, preinvoice_number, issue_date, due_date, subtotal, tax_rate, tax_amount, total_amount, payment_type, advance_amount, notes, status, supply_date, authorized_person, payment_method, fiscal_receipt_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([
-            $client_id,
-            $preinvoice_number,
-            $issue_date,
-            $due_date,
-            $subtotal,
-            $tax_rate,
-            $tax_amount,
-            $total_amount,
-            $payment_type,
-            $advance_amount,
-            $notes,
-            'draft',
-            $supply_date,
-            $authorized_person,
-            $payment_method,
-            $fiscal_receipt_number
-        ]);
-        $preinvoice_id = $pdo->lastInsertId();
-
-        // Insert pre-invoice items
-        $stmt = $pdo->prepare("INSERT INTO pre_invoice_items (preinvoice_id, service_id, item_name, description, quantity, unit_price, total_price, discount_rate, discount_amount, is_discount, final_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        foreach ($line_items as $item) {
-            $stmt->execute([
-                $preinvoice_id,
-                $item['service_id'],
-                $item['item_name'],
-                $item['description'],
-                $item['quantity'],
-                $item['unit_price'],
-                $item['total_price'],
-                $item['discount_rate'],
-                $item['discount_amount'],
-                $item['is_discount'],
-                $item['final_price']
-            ]);
+        if (!empty($item_names[$i]) && !empty($quantities[$i]) && !empty($unit_prices[$i])) {
+            $quantity = floatval($quantities[$i]);
+            $unit_price = floatval($unit_prices[$i]);
+            $discount_rate = floatval($discount_rates[$i] ?? 0);
+            $is_discount = isset($is_discounts[$i]) ? 1 : 0;
+            
+            $item_subtotal = $quantity * $unit_price;
+            $item_discount_amount = $item_subtotal * ($discount_rate / 100);
+            $final_price = $item_subtotal - $item_discount_amount;
+            $subtotal += $final_price;
+            
+            $line_items[] = [
+                'service_id' => !empty($service_ids[$i]) ? $service_ids[$i] : null,
+                'item_name' => $item_names[$i],
+                'description' => $descriptions[$i] ?? '',
+                'quantity' => $quantity,
+                'unit_price' => $unit_price,
+                'total_price' => $final_price,
+                'discount_rate' => $discount_rate,
+                'discount_amount' => $item_discount_amount,
+                'is_discount' => $is_discount,
+                'final_price' => $final_price
+            ];
         }
-        $pdo->commit();
-        $success = "Про Фактура успешно креирана! Број: " . $preinvoice_number;
-        header("Location: view_preinvoice.php?id=$preinvoice_id");
-        exit;
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        $error = "Грешка при креирање на Про Фактура: " . $e->getMessage();
+    }
+    
+    if (empty($line_items)) {
+        $error = "За најмалку еден ред е потребно!";
+    } else {
+        try {
+            $pdo->beginTransaction();
+            
+            // Calculate global discount
+            $global_discount_amount = $subtotal * ($global_discount_rate / 100);
+            $subtotal_after_global_discount = $subtotal - $global_discount_amount;
+
+            // Calculate totals
+            $tax_amount = $subtotal_after_global_discount * ($tax_rate / 100);
+            $total_amount = $subtotal_after_global_discount + $tax_amount;
+            
+            // Generate automatic pre-invoice number
+            $current_year = date('Y');
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM pre_invoices WHERE YEAR(created_at) = ?");
+            $stmt->execute([$current_year]);
+            $preinvoice_count = $stmt->fetchColumn();
+            $preinvoice_number = $current_year . '-PF-' . str_pad($preinvoice_count + 1, 3, '0', STR_PAD_LEFT);
+
+            // Calculate remaining amount if advance payment
+            $remaining_amount = 0;
+            if ($payment_type === 'advance' && $advance_amount > 0) {
+                $remaining_amount = $total_amount - $advance_amount;
+            }
+            
+            $is_vat_obvrznik = isset($_POST['is_vat_obvrznik']) ? 1 : 0;
+            $is_global_discount = isset($_POST['is_global_discount']) ? 1 : 0;
+            
+            // Insert pre-invoice
+            $stmt = $pdo->prepare("INSERT INTO pre_invoices (client_id, preinvoice_number, issue_date, due_date, subtotal, tax_rate, tax_amount, total_amount, payment_type, advance_amount, remaining_amount, notes, status, supply_date, authorized_person, payment_method, fiscal_receipt_number, is_vat_obvrznik, global_discount_rate, global_discount_amount, is_global_discount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([
+                $client_id,
+                $preinvoice_number,
+                $issue_date,
+                $due_date,
+                $subtotal,
+                $tax_rate,
+                $tax_amount,
+                $total_amount,
+                $payment_type,
+                $advance_amount,
+                $remaining_amount,
+                $notes,
+                'draft',
+                $supply_date,
+                $authorized_person,
+                $payment_method,
+                $fiscal_receipt_number,
+                $is_vat_obvrznik,
+                $global_discount_rate,
+                $global_discount_amount,
+                $is_global_discount
+            ]);
+            $preinvoice_id = $pdo->lastInsertId();
+
+            // Insert pre-invoice items
+            $stmt = $pdo->prepare("INSERT INTO pre_invoice_items (preinvoice_id, service_id, item_name, description, quantity, unit_price, total_price, discount_rate, discount_amount, is_discount, final_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            foreach ($line_items as $item) {
+                $stmt->execute([
+                    $preinvoice_id,
+                    $item['service_id'],
+                    $item['item_name'],
+                    $item['description'],
+                    $item['quantity'],
+                    $item['unit_price'],
+                    $item['total_price'],
+                    $item['discount_rate'],
+                    $item['discount_amount'],
+                    $item['is_discount'],
+                    $item['final_price']
+                ]);
+            }
+            
+            $pdo->commit();
+            $success = "Про фактура успешно креирана! Број: " . $preinvoice_number;
+            header("Location: view_preinvoice.php?id=$preinvoice_id");
+            exit;
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            $error = "Грешка при креирање на про фактура: " . $e->getMessage();
+        }
     }
 }
 
@@ -141,31 +166,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $default_issue_date = date('Y-m-d');
 $default_due_date = date('Y-m-d', strtotime('+30 days'));
 ?>
-<!DOCTYPE html>
-<html lang="en">
-
-<body class="bg-light">
+<?php include 'includes/header.php'; ?>
+<?php include 'includes/navbar.php'; ?>
     
 
     <div class="container mt-4 main-content">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <h2>Креирај Про Фактура</h2>
+            <h2>Креирај нова про фактура</h2>
             <a href="preinvoices.php" class="btn btn-secondary">
-                <i class="bi bi-arrow-left"></i> Назад кон Про Фактури
+                <i class="bi bi-arrow-left"></i> Назад кон про фактури
             </a>
         </div>
+
         <?php if (isset($error)): ?>
             <div class="alert alert-danger"><?php echo $error; ?></div>
         <?php endif; ?>
+        
         <?php if (isset($success)): ?>
             <div class="alert alert-success"><?php echo $success; ?></div>
         <?php endif; ?>
+
         <form method="POST" id="preinvoiceForm">
             <div class="row">
                 <div class="col-md-8">
                     <div class="card">
                         <div class="card-header">
-                            <h5 class="mb-0">Детали за Про Фактурата</h5>
+                            <h5 class="mb-0">Детали за про фактурата</h5>
                         </div>
                         <div class="card-body">
                             <div class="row">
@@ -226,22 +252,11 @@ $default_due_date = date('Y-m-d', strtotime('+30 days'));
                             
                             <!-- Additional Legal Fields Row -->
                             <div class="row">
-                                <div class="col-md-6">
+                                <div class="col-md-12">
                                     <div class="mb-3">
                                         <label for="fiscal_receipt_number" class="form-label">Фискален број</label>
                                         <input type="text" class="form-control" id="fiscal_receipt_number" name="fiscal_receipt_number" placeholder="Фискален број (опционално)">
                                         <small class="form-text text-muted">За одредени видови на трансакции</small>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="mb-3">
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="is_vat_obvrznik" name="is_vat_obvrznik" value="1">
-                                            <label class="form-check-label" for="is_vat_obvrznik">
-                                                ДДВ обврзник
-                                            </label>
-                                        </div>
-                                        <small class="form-text text-muted">Проверете ако сте регистрирани за ДДВ</small>
                                     </div>
                                 </div>
                             </div>
@@ -249,13 +264,25 @@ $default_due_date = date('Y-m-d', strtotime('+30 days'));
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label for="tax_rate" class="form-label">Ставка на ДДВ (%)</label>
-                                        <input type="number" step="0.01" min="0" max="100" class="form-control short-input" id="tax_rate" name="tax_rate" value="18" required>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <input type="number" step="0.01" min="0" max="100" class="form-control short-input" id="tax_rate" name="tax_rate" value="0" disabled>
+                                            <div class="discount-checkbox d-flex align-items-center mb-0" style="height: 38px;">
+                                                <input class="form-check-input me-1" type="checkbox" id="is_vat_obvrznik" name="is_vat_obvrznik" value="1" onchange="toggleVatRate()">
+                                                <label class="form-check-label ms-1 big-checkbox-label" for="is_vat_obvrznik">ДДВ обврзник</label>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label for="global_discount_rate" class="form-label">Глобална попуст (%)</label>
-                                        <input type="number" step="0.01" min="0" max="100" class="form-control short-input" id="global_discount_rate" name="global_discount_rate" value="0">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <input type="number" step="0.01" min="0" max="100" class="form-control short-input" id="global_discount_rate" name="global_discount_rate" value="0" disabled>
+                                            <div class="discount-checkbox d-flex align-items-center mb-0" style="height: 38px;">
+                                                <input class="form-check-input me-1" type="checkbox" id="is_global_discount" name="is_global_discount" value="1" onchange="toggleGlobalDiscount()">
+                                                <label class="form-check-label ms-1 big-checkbox-label" for="is_global_discount">Глобална попуст</label>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -272,15 +299,16 @@ $default_due_date = date('Y-m-d', strtotime('+30 days'));
                                 <div class="col-md-6" id="advance_amount_group" style="display:none;">
                                     <div class="mb-3">
                                         <label for="advance_amount" class="form-label">Износ на аванс</label>
-                                        <input type="number" step="0.01" class="form-control" id="advance_amount" name="advance_amount" value="0">
+                                        <input type="number" step="0.01" min="0" class="form-control" id="advance_amount" name="advance_amount" value="0" onchange="calculateTotals()">
+                                        <small class="form-text text-muted">Износ на аванс кој ќе се плати</small>
                                     </div>
                                 </div>
                             </div>
                             <div class="row">
                                 <div class="col-12">
                                     <div class="mb-3">
-                                        <label for="notes" class="form-label">Белешки на Про Фактурата</label>
-                                        <textarea class="form-control" id="notes" name="notes" rows="3" placeholder="Белешки за Про Фактурата"></textarea>
+                                        <label for="notes" class="form-label">Белешки на про фактурата</label>
+                                        <textarea class="form-control" id="notes" name="notes" rows="3" placeholder="Белешки за про фактурата"></textarea>
                                     </div>
                                 </div>
                             </div>
@@ -288,14 +316,14 @@ $default_due_date = date('Y-m-d', strtotime('+30 days'));
                     </div>
                     <div class="card mt-4">
                         <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">Ставки на Про Фактурата</h5>
+                            <h5 class="mb-0">Ставки на про фактурата</h5>
                             <button type="button" class="btn btn-sm btn-primary" onclick="addLineItem()">
                                 <i class="bi bi-plus"></i> Додај ставка
                             </button>
                         </div>
                         <div class="card-body">
                             <div id="lineItemsContainer">
-                                <!-- Редови за Про Фактурата ќе се додаваат тука -->
+                                <!-- Редови за про фактурата ќе се додаваат тука -->
                             </div>
                         </div>
                     </div>
@@ -324,7 +352,7 @@ $default_due_date = date('Y-m-d', strtotime('+30 days'));
                             </div>
                             <div class="d-grid gap-2">
                                 <button type="submit" class="btn btn-primary btn-lg">
-                                    <i class="bi bi-check"></i> Креирај Про Фактура
+                                    <i class="bi bi-check"></i> Креирај про фактура
                                 </button>
                                 <a href="preinvoices.php" class="btn btn-secondary">Откажи</a>
                             </div>
@@ -457,10 +485,43 @@ $default_due_date = date('Y-m-d', strtotime('+30 days'));
             document.getElementById('totalAmount').textContent = `${total.toFixed(2)} ${currency}`;
         }
 
+        function toggleVatRate() {
+            const vatCheckbox = document.getElementById('is_vat_obvrznik');
+            const taxRateInput = document.getElementById('tax_rate');
+            
+            if (vatCheckbox.checked) {
+                taxRateInput.disabled = false;
+                taxRateInput.required = true;
+            } else {
+                taxRateInput.disabled = true;
+                taxRateInput.required = false;
+                taxRateInput.value = '0';
+                calculateTotals();
+            }
+        }
+
+        function toggleGlobalDiscount() {
+            const discountCheckbox = document.getElementById('is_global_discount');
+            const discountRateInput = document.getElementById('global_discount_rate');
+            
+            if (discountCheckbox.checked) {
+                discountRateInput.disabled = false;
+                discountRateInput.required = true;
+            } else {
+                discountRateInput.disabled = true;
+                discountRateInput.required = false;
+                discountRateInput.value = '0';
+                calculateTotals();
+            }
+        }
+
         function toggleAdvanceInput() {
             var paymentType = document.getElementById('payment_type').value;
             var advanceGroup = document.getElementById('advance_amount_group');
             advanceGroup.style.display = (paymentType === 'advance') ? 'block' : 'none';
+            if (paymentType === 'advance') {
+                calculateTotals();
+            }
         }
 
         function toggleItemDiscount(lineItemIndex) {
@@ -479,10 +540,16 @@ $default_due_date = date('Y-m-d', strtotime('+30 days'));
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
-            addLineItem();
-            toggleAdvanceInput();
+            addLineItem(); // Only add one row
+            
+            // Add event listener for tax rate changes
             document.getElementById('tax_rate').addEventListener('change', calculateTotals);
+            
+            // Add event listener for global discount rate changes
             document.getElementById('global_discount_rate').addEventListener('change', calculateTotals);
+            
+            // Initialize advance input visibility
+            toggleAdvanceInput();
         });
     </script>
 <?php include 'includes/footer.php'; ?>

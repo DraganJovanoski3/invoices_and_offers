@@ -239,7 +239,7 @@ $page_title = 'Понуда';
                         <!-- Client logo left -->
                         <td width="15%" style="vertical-align: top; text-align: left; padding-right: 10px;">
                             <?php if ($offer['client_logo_path']): ?>
-                                <img src="<?php echo htmlspecialchars($offer['client_logo_path']); ?>" style="width:70px; height:auto; margin-bottom: 8px; border-radius: 6px; display:block;" />
+                                <img src="<?php echo htmlspecialchars($offer['client_logo_path']); ?>" class="client-logo" style="margin-bottom: 8px; border-radius: 6px; display:block;" />
                             <?php endif; ?>
                         </td>
                         <!-- Empty space -->
@@ -247,7 +247,7 @@ $page_title = 'Понуда';
                         <!-- Company logo right -->
                         <td width="15%" style="vertical-align: top; text-align: right; padding-left: 10px;">
                             <?php if ($company['logo_path']): ?>
-                                <img src="<?php echo htmlspecialchars($company['logo_path']); ?>" style="width:70px; height:auto; margin-bottom: 8px; border-radius: 6px; display:block;" />
+                                <img src="<?php echo htmlspecialchars($company['logo_path']); ?>" class="company-logo" style="margin-bottom: 8px; border-radius: 6px; display:block;" />
                             <?php endif; ?>
                         </td>
                     </tr>

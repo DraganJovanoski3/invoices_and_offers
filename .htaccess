@@ -1,0 +1,4 @@
+# Prevent any redirects or rewrites for this directory
+RewriteEngine Off
+
+

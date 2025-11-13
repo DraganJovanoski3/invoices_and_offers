@@ -1,0 +1,364 @@
+/* Download PDF CSS - For invoice PDF generation */
+
+/* Base container */
+.pdf-container {
+    font-family: dejavusans, helvetica, sans-serif;
+    font-size: 10pt;
+    color: #333;
+    line-height: 1.2;
+}
+
+/* Header section */
+.pdf-header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.pdf-title {
+    font-size: 22pt;
+    font-weight: bold;
+    color: #007bff;
+}
+
+.pdf-number {
+    font-size: 13pt;
+    font-weight: bold;
+    color: #333;
+}
+
+/* Company and client info */
+.pdf-info-section {
+    margin-bottom: 20px;
+}
+
+.pdf-info-table {
+    width: 100%;
+}
+
+.pdf-info-cell-left {
+    vertical-align: top;
+    padding-right: 10px;
+}
+
+.pdf-info-cell-right {
+    text-align: right;
+    vertical-align: top;
+    padding-left: 10px;
+}
+
+.pdf-company-name {
+    font-size: 12pt;
+    font-weight: bold;
+    color: #333;
+    margin-bottom: 2px;
+}
+
+.pdf-client-name {
+    font-size: 12pt;
+    font-weight: bold;
+    color: #333;
+    margin-bottom: 2px;
+}
+
+.pdf-info-text {
+    font-size: 9pt;
+    color: #666;
+    margin: 0px;
+}
+
+.pdf-info-notes {
+    color: #888;
+    font-size: 9pt;
+    margin-bottom: 1px;
+}
+
+/* Blue separator line */
+.pdf-separator {
+    border-bottom: 2px solid #007bff;
+    margin-bottom: 18px;
+    margin-top: 12px;
+}
+
+/* Dates and payment info */
+.pdf-dates-table {
+    width: 100%;
+    margin: 3px 0;
+    padding: 0;
+    border-spacing: 0;
+    border-collapse: collapse;
+    line-height: 1.4;
+}
+
+.pdf-dates-cell-first-row {
+    font-size: 8pt;
+    padding: 3px 10px 10px 0;
+    vertical-align: top;
+    line-height: 1.4;
+}
+
+.pdf-dates-cell-first-row-right {
+    font-size: 8pt;
+    padding: 3px 0 10px 10px;
+    vertical-align: top;
+    line-height: 1.4;
+}
+
+.pdf-dates-cell-second-row {
+    font-size: 8pt;
+    padding: 10px 10px 3px 0;
+    vertical-align: top;
+    line-height: 1.4;
+}
+
+.pdf-dates-cell-second-row-right {
+    font-size: 8pt;
+    padding: 10px 0 3px 10px;
+    vertical-align: top;
+    line-height: 1.4;
+}
+
+/* Authorized person section */
+.pdf-authorized-section {
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+}
+
+.pdf-authorized-table {
+    width: 100%;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.pdf-authorized-cell {
+    font-size: 8pt;
+}
+
+/* Items table */
+.pdf-items-section {
+    margin-bottom: 15px;
+    margin-top: 0;
+    padding-top: 0;
+}
+
+.pdf-items-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8pt;
+}
+
+.pdf-items-header {
+    background: #e9f3fb;
+}
+
+.pdf-items-th {
+    border: 1px solid #b6d4ef;
+    padding: 4px;
+    text-align: center;
+    font-weight: bold;
+    font-size: 7pt;
+}
+
+.pdf-items-th-left {
+    border: 1px solid #b6d4ef;
+    padding: 4px;
+    text-align: left;
+    font-weight: bold;
+    font-size: 7pt;
+}
+
+.pdf-items-td {
+    border: 1px solid #b6d4ef;
+    padding: 3px;
+    text-align: center;
+    font-size: 7pt;
+}
+
+.pdf-items-td-left {
+    border: 1px solid #b6d4ef;
+    padding: 3px;
+    text-align: left;
+    font-size: 7pt;
+}
+
+.pdf-items-empty {
+    border: 1px solid #b6d4ef;
+    padding: 8px;
+    text-align: center;
+    color: #999;
+    font-style: italic;
+    font-size: 7pt;
+}
+
+/* VAT info row */
+.pdf-vat-info-table {
+    width: 100%;
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+}
+
+.pdf-vat-info-cell {
+    font-size: 8pt;
+    text-align: left;
+}
+
+.pdf-vat-info-cell-right {
+    font-size: 8pt;
+    text-align: right;
+}
+
+/* Totals section */
+.pdf-totals-section {
+    border-top: 2px solid #dee2e6;
+    padding-top: 0;
+    margin-top: 0;
+}
+
+.pdf-totals-table {
+    width: 100%;
+    font-size: 8pt;
+    margin-top: 0;
+}
+
+.pdf-totals-spacer {
+    height: 4px;
+    border: none;
+}
+
+.pdf-totals-label {
+    color: #333;
+    font-size: 8pt;
+}
+
+.pdf-totals-value {
+    text-align: right;
+    color: #333;
+    font-size: 8pt;
+}
+
+.pdf-totals-total-label {
+    font-size: 8pt;
+    font-weight: normal;
+    color: #333;
+}
+
+.pdf-totals-total-value {
+    text-align: right;
+    font-size: 9pt;
+    font-weight: bold;
+    color: #333;
+}
+
+/* VAT breakdown section */
+.pdf-vat-breakdown {
+    margin-top: 10px;
+    font-size: 8pt;
+}
+
+.pdf-vat-breakdown-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.pdf-vat-breakdown-cell {
+    vertical-align: top;
+}
+
+.pdf-vat-breakdown-cell-right {
+    vertical-align: top;
+    padding-left: 15px;
+}
+
+.pdf-vat-breakdown-title {
+    font-weight: bold;
+    margin-bottom: 5px;
+    font-size: 8pt;
+}
+
+.pdf-vat-breakdown-inner-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 7pt;
+}
+
+.pdf-vat-breakdown-td {
+    border: 1px solid #ccc;
+    padding: 3px;
+    text-align: center;
+}
+
+.pdf-vat-breakdown-td-right {
+    border: 1px solid #ccc;
+    padding: 3px;
+    text-align: right;
+}
+
+.pdf-vat-breakdown-signature-section {
+    margin-top: 15px;
+    font-size: 7pt;
+}
+
+.pdf-vat-breakdown-signature-box {
+    margin-bottom: 10px;
+}
+
+.pdf-vat-breakdown-signature-line {
+    border-bottom: 1px solid #000;
+    width: 150px;
+    margin-bottom: 3px;
+}
+
+.pdf-vat-breakdown-signature-label {
+    font-size: 6pt;
+}
+
+/* Notes section */
+.pdf-notes-section {
+    margin-top: 10px;
+    padding: 6px;
+    background: #fff3cd;
+    border-radius: 3px;
+}
+
+.pdf-notes-title {
+    font-size: 8pt;
+    font-weight: bold;
+    color: #856404;
+    margin-bottom: 3px;
+}
+
+.pdf-notes-text {
+    font-size: 7pt;
+    color: #856404;
+    line-height: 1.2;
+}
+
+/* Signatures section */
+.pdf-signatures-section {
+    margin-top: 20px;
+}
+
+.pdf-signatures-table {
+    width: 100%;
+    font-size: 8pt;
+}
+
+.pdf-signature-cell-left {
+    text-align: left;
+    vertical-align: bottom;
+}
+
+.pdf-signature-cell-right {
+    text-align: right;
+    vertical-align: bottom;
+}
+
+.pdf-signature-label {
+    font-size: 7pt;
+}
+
+.pdf-signature-date {
+    margin-top: 15px;
+    text-align: center;
+    font-size: 8pt;
+}
+

@@ -130,13 +130,46 @@ if (!empty($company['bank_account'])) {
 $html .= '</td>';
 $html .= '</tr></table>';
 $html .= '</div>';
-// Blue line
-$html .= '<div style="max-width:900px; margin:0 auto; border-bottom:2px solid #007bff; margin-bottom:18px; margin-top:12px;"></div>';
-// Dates row
-$html .= '<table width="100%" style="margin-bottom:0; padding-bottom:0;"><tr>';
+// BLUE LINE (matching view)
+$html .= '<div style="max-width: 900px; margin: 0 auto; border-bottom: 2px solid #007bff; margin-bottom: 18px; margin-top: 12px;"></div>';
+// DATES ROW (matching view)
+$html .= '<div style="max-width: 900px; margin: 0 auto; margin-bottom: 0; padding-bottom: 0;">';
+$html .= '<table width="100%" style="margin-bottom: 0; padding-bottom: 0;"><tr>';
 $html .= '<td width="50%" style="font-size: 10pt;"><strong>Датум на издавање:</strong> ' . date('d.m.Y', strtotime($preinvoice['issue_date'])) . '</td>';
 $html .= '<td width="50%" style="font-size: 10pt;"><strong>Датум на доспевање:</strong> ' . date('d.m.Y', strtotime($preinvoice['due_date'])) . '</td>';
 $html .= '</tr></table>';
+$html .= '</div>';
+
+// LEGAL INFORMATION ROW (matching view)
+$html .= '<div style="max-width: 900px; margin: 0 auto; margin-bottom: 15px; padding-bottom: 10px;">';
+$html .= '<table width="100%" style="margin-bottom: 0; padding-bottom: 0;"><tr>';
+$html .= '<td width="50%" style="font-size: 10pt;"><strong>Датум на испорака:</strong> ' . (!empty($preinvoice['supply_date']) ? date('d.m.Y', strtotime($preinvoice['supply_date'])) : date('d.m.Y', strtotime($preinvoice['issue_date']))) . '</td>';
+$html .= '<td width="50%" style="font-size: 10pt;"><strong>Начин на плаќање:</strong> ';
+$payment_methods = [
+    'bank_transfer' => 'Банкарски трансфер',
+    'cash' => 'Готовина',
+    'card' => 'Картичка',
+    'check' => 'Чек',
+    'other' => 'Друго'
+];
+$html .= $payment_methods[$preinvoice['payment_method'] ?? 'bank_transfer'] ?? 'Банкарски трансфер';
+$html .= '</td>';
+$html .= '</tr></table>';
+$html .= '</div>';
+
+// AUTHORIZED PERSON ROW (matching view)
+if (!empty($preinvoice['authorized_person'])) {
+    $html .= '<div style="max-width: 900px; margin: 0 auto; margin-bottom: 15px; padding-bottom: 10px;">';
+    $html .= '<table width="100%" style="margin-bottom: 0; padding-bottom: 0;"><tr>';
+    $html .= '<td width="50%" style="font-size: 10pt;"><strong>Овластено лице:</strong> ' . htmlspecialchars($preinvoice['authorized_person']) . '</td>';
+    $html .= '<td width="50%" style="font-size: 10pt;">';
+    if (!empty($preinvoice['fiscal_receipt_number'])) {
+        $html .= '<strong>Фискален број:</strong> ' . htmlspecialchars($preinvoice['fiscal_receipt_number']);
+    }
+    $html .= '</td>';
+    $html .= '</tr></table>';
+    $html .= '</div>';
+}
 // Items table
 $html .= '<div class="items-table">';
 $html .= '<table border="1" cellpadding="4" style="border-collapse: collapse; font-size: 10pt; width:100%;">';

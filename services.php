@@ -19,24 +19,52 @@ if (isset($_POST['delete_service'])) {
     $success = "Услугата е избришана успешно!";
 }
 
+// Function to generate next auto-increment code
+function generateNextServiceCode($pdo) {
+    // Get the highest numeric code
+    $stmt = $pdo->query("SELECT article_code FROM services WHERE article_code REGEXP '^[0-9]+$' ORDER BY CAST(article_code AS UNSIGNED) DESC LIMIT 1");
+    $result = $stmt->fetch();
+    
+    if ($result && !empty($result['article_code'])) {
+        $next_number = intval($result['article_code']) + 1;
+    } else {
+        $next_number = 1;
+    }
+    
+    // Format as 001, 002, 003, etc.
+    return str_pad($next_number, 3, '0', STR_PAD_LEFT);
+}
+
 // Handle service creation/editing
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['delete_service'])) {
     $name = trim($_POST['name']);
     $price = floatval($_POST['price']);
     $description = trim($_POST['description']);
+    $article_code = trim($_POST['article_code']);
     
     if (empty($name) || $price < 0.01) {
         $error = "Името и цената на услугата се задолжителни!";
     } else {
         if (isset($_POST['service_id']) && !empty($_POST['service_id'])) {
             // Update existing service
-            $stmt = $pdo->prepare("UPDATE services SET name = ?, price = ?, description = ? WHERE id = ?");
-            $stmt->execute([$name, $price, $description, $_POST['service_id']]);
+            // If article_code is empty, keep the existing one
+            if (empty($article_code)) {
+                $stmt = $pdo->prepare("SELECT article_code FROM services WHERE id = ?");
+                $stmt->execute([$_POST['service_id']]);
+                $existing = $stmt->fetch();
+                $article_code = $existing['article_code'] ?? '';
+            }
+            $stmt = $pdo->prepare("UPDATE services SET name = ?, price = ?, description = ?, article_code = ? WHERE id = ?");
+            $stmt->execute([$name, $price, $description, $article_code, $_POST['service_id']]);
             $success = "Услугата е ажурирана успешно!";
         } else {
             // Create new service
-            $stmt = $pdo->prepare("INSERT INTO services (name, price, description) VALUES (?, ?, ?)");
-            $stmt->execute([$name, $price, $description]);
+            // If article_code is empty, generate auto-increment code
+            if (empty($article_code)) {
+                $article_code = generateNextServiceCode($pdo);
+            }
+            $stmt = $pdo->prepare("INSERT INTO services (name, price, description, article_code) VALUES (?, ?, ?, ?)");
+            $stmt->execute([$name, $price, $description, $article_code]);
             $success = "Услугата е создадена успешно!";
         }
     }
@@ -95,6 +123,20 @@ if ($logo_files && count($logo_files) > 0) {
                             </div>
                             
                             <div class="mb-3">
+                                <label for="article_code" class="form-label">Шифра (Артикул код)</label>
+                                <input type="text" class="form-control" id="article_code" name="article_code" 
+                                       value="<?php echo htmlspecialchars($edit_service['article_code'] ?? ''); ?>" 
+                                       placeholder="<?php echo $edit_service ? 'Остави празно за да го задржиш постоечкиот код' : 'Остави празно за автоматски код (001, 002, ...)'; ?>">
+                                <small class="form-text text-muted">
+                                    <?php if ($edit_service): ?>
+                                        Остави празно за да го задржиш постоечкиот код. Внеси прилагоден код за да го промениш.
+                                    <?php else: ?>
+                                        Остави празно за автоматски код (001, 002, 003, ...) или внеси прилагоден код.
+                                    <?php endif; ?>
+                                </small>
+                            </div>
+                            
+                            <div class="mb-3">
                                 <label for="price" class="form-label">Цена *</label>
                                 <div class="input-group">
                                     <input type="number" class="form-control" id="price" name="price" step="0.01" min="0.01" value="<?php echo $edit_service['price'] ?? ''; ?>" required>
@@ -135,6 +177,7 @@ if ($logo_files && count($logo_files) > 0) {
                                 <table class="table table-striped">
                                     <thead>
                                         <tr>
+                                            <th>Шифра</th>
                                             <th>Име на услугата</th>
                                             <th>Цена</th>
                                             <th>Опис</th>
@@ -144,6 +187,7 @@ if ($logo_files && count($logo_files) > 0) {
                                     <tbody>
                                         <?php foreach ($services as $service): ?>
                                             <tr>
+                                                <td><?php echo htmlspecialchars($service['article_code'] ?? 'N/A'); ?></td>
                                                 <td><?php echo htmlspecialchars($service['name']); ?></td>
                                                 <td><?php echo number_format($service['price'], 2); ?> <?php echo $currency; ?></td>
                                                 <td>

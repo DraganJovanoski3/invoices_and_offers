@@ -31,18 +31,47 @@ if (!$invoice) {
     exit;
 }
 
-// Get invoice items
-$stmt = $pdo->prepare("SELECT * FROM invoice_items WHERE invoice_id = ?");
+// Get invoice items with service article codes
+$stmt = $pdo->prepare("
+    SELECT ii.*, s.article_code 
+    FROM invoice_items ii 
+    LEFT JOIN services s ON ii.service_id = s.id 
+    WHERE ii.invoice_id = ?
+");
 $stmt->execute([$invoice_id]);
 $items = $stmt->fetchAll();
 
 // Handle status updates
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
     $new_status = $_POST['status'];
-    $stmt = $pdo->prepare("UPDATE invoices SET status = ? WHERE id = ?");
-    $stmt->execute([$new_status, $invoice_id]);
-    header("Location: view_invoice.php?id=$invoice_id");
-    exit;
+    $valid_statuses = ['draft', 'sent', 'paid', 'overdue'];
+    
+    if (in_array($new_status, $valid_statuses)) {
+        try {
+            $stmt = $pdo->prepare("UPDATE invoices SET status = ? WHERE id = ?");
+            $stmt->execute([$new_status, $invoice_id]);
+            
+            if ($stmt->rowCount() > 0) {
+                $_SESSION['success'] = 'Статусот на фактурата е успешно ажуриран.';
+                // Refresh the invoice data
+                $stmt = $pdo->prepare("
+                    SELECT i.*, c.name as client_name, c.company_name as client_company_name, c.logo_path as client_logo_path, c.email as client_email, c.phone as client_phone, c.address as client_address, c.tax_number as client_tax_number, c.website as client_website, c.notes as client_notes
+                    FROM invoices i
+                    LEFT JOIN clients c ON i.client_id = c.id
+                    WHERE i.id = ?
+                ");
+                $stmt->execute([$invoice_id]);
+                $invoice = $stmt->fetch();
+            } else {
+                $_SESSION['error'] = 'Фактурата не е пронајдена или не е ажурирана.';
+            }
+        } catch (PDOException $e) {
+            error_log("Error updating invoice status: " . $e->getMessage());
+            $_SESSION['error'] = 'Грешка при ажурирање на статусот.';
+        }
+    } else {
+        $_SESSION['error'] = 'Неважечки статус.';
+    }
 }
 
 // Get company settings
@@ -73,7 +102,7 @@ $page_title = 'Фактура';
 <?php include 'includes/header.php'; ?>
 <?php include 'includes/navbar.php'; ?>
 
-<div class="container mt-4 main-content">
+<div class="container mt-4">
         <div class="no-print mb-3">
             <a href="invoices.php" class="btn btn-secondary">
                 <i class="bi bi-arrow-left"></i> Назад кон фактури
@@ -88,7 +117,7 @@ $page_title = 'Фактура';
 
         <div class="invoice-container">
             <!-- HEADER: Centered title and number at the top -->
-            <div style="max-width:900px; margin:0 auto; margin-bottom: 8px; ">
+            <div class="invoice-header">
                 <span style="font-size: 22pt; font-weight: bold; color: #007bff;">ФАКТУРА</span><br>
                 <span style="font-size: 13pt; font-weight: bold; color: #333;">#<?php echo htmlspecialchars($invoice['invoice_number']); ?></span>
             </div>
@@ -99,22 +128,21 @@ $page_title = 'Фактура';
                         <!-- Client logo left -->
                         <td width="15%" style="vertical-align: top; text-align: left; padding-right: 10px;">
                             <?php if ($invoice['client_logo_path']): ?>
-                                <img src="<?php echo htmlspecialchars($invoice['client_logo_path']); ?>" style="width:70px; height:auto; margin-bottom: 8px; border-radius: 6px; display:block;" />
+                                <img src="<?php echo htmlspecialchars($invoice['client_logo_path']); ?>" class="client-logo" style="display:block;" />
                             <?php endif; ?>
                         </td>
-                        <!-- Empty space -->
                         <td width="70%"></td>
                         <!-- Company logo right -->
                         <td width="15%" style="vertical-align: top; text-align: right; padding-left: 10px;">
                             <?php if ($company['logo_path']): ?>
-                                <img src="<?php echo htmlspecialchars($company['logo_path']); ?>" style="width:70px; height:auto; margin-bottom: 8px; border-radius: 6px; display:block;" />
+                                <img src="<?php echo htmlspecialchars($company['logo_path']); ?>" class="company-logo" style="margin-bottom: 8px; border-radius: 6px; display:block;" />
                             <?php endif; ?>
                         </td>
                     </tr>
                 </table>
             </div>
             <!-- HEADER: Company and client info side by side -->
-            <div style="max-width: 900px; margin: 0 auto; background: #fff; padding: 0px 30px 30px 30px; font-size: 10pt;">
+            <div class="client-info">
                 <table width="100%"><tr>
                     <!-- Client info left -->
                     <td width="50%" style="vertical-align: top; padding-right: 10px;">
@@ -177,7 +205,7 @@ $page_title = 'Фактура';
             <!-- LEGAL INFORMATION ROW -->
             <div style="margin-bottom: 15px; padding-bottom: 10px;">
                 <table width="100%" style="margin-bottom:0; padding-bottom:0;"><tr>
-                    <td width="50%" style="font-size: 10pt;"><strong>Датум на испорака:</strong> <?php echo $invoice['supply_date'] ? date('d.m.Y', strtotime($invoice['supply_date'])) : date('d.m.Y', strtotime($invoice['issue_date'])); ?></td>
+                    <td width="50%" style="font-size: 10pt;"><strong>Датум на испорака:</strong> <?php echo !empty($invoice['supply_date']) ? date('d.m.Y', strtotime($invoice['supply_date'])) : date('d.m.Y', strtotime($invoice['issue_date'])); ?></td>
                     <td width="50%" style="font-size: 10pt;"><strong>Начин на плаќање:</strong> 
                         <?php 
                         $payment_methods = [
@@ -187,57 +215,103 @@ $page_title = 'Фактура';
                             'check' => 'Чек',
                             'other' => 'Друго'
                         ];
-                        echo $payment_methods[$invoice['payment_method']] ?? 'Банкарски трансфер';
+                        echo $payment_methods[$invoice['payment_method'] ?? 'bank_transfer'] ?? 'Банкарски трансфер';
                         ?>
                     </td>
                 </tr></table>
             </div>
             
             <!-- AUTHORIZED PERSON ROW -->
-            <?php if ($invoice['authorized_person']): ?>
             <div style="margin-bottom: 15px; padding-bottom: 10px;">
                 <table width="100%" style="margin-bottom:0; padding-bottom:0;"><tr>
-                    <td width="50%" style="font-size: 10pt;"><strong>Овластено лице:</strong> <?php echo htmlspecialchars($invoice['authorized_person']); ?></td>
+                    <td width="50%" style="font-size: 10pt;"><strong>Овластено лице:</strong> <?php echo !empty($invoice['authorized_person']) ? htmlspecialchars($invoice['authorized_person']) : '-'; ?></td>
                     <td width="50%" style="font-size: 10pt;">
-                        <?php if ($invoice['fiscal_receipt_number']): ?>
+                        <?php if (!empty($invoice['fiscal_receipt_number'])): ?>
                             <strong>Фискален број:</strong> <?php echo htmlspecialchars($invoice['fiscal_receipt_number']); ?>
                         <?php endif; ?>
                     </td>
                 </tr></table>
             </div>
-            <?php endif; ?>
             <!-- ITEMS TABLE: use previous improved style here -->
             <div class="items-table">
                 <table class="table" style="border-collapse: collapse; font-size: 10pt;">
                     <thead><tr style="background: #e9f3fb;">
-                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: left; font-weight: bold;">Опис</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Рб</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Шифра</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: left; font-weight: bold;">Артикал</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Ем</th>
                         <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Количина</th>
-                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Ед. цена</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Цена без ДДВ</th>
                         <?php if ($has_item_discount): ?>
-                            <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Попуст</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Попуст</th>
                         <?php endif; ?>
-                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Вкупно</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">ДДВ</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Цена со ДДВ</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Вредност со ДДВ</th>
                     </tr></thead>
                     <tbody>
                         <?php if (!empty($items)): ?>
-                            <?php $row_num = 0; foreach ($items as $item): $row_bg = ($row_num % 2 == 0) ? '#fff' : '#f7faff'; ?>
+                            <?php 
+                            $row_num = 0; 
+                            $total_without_vat = 0;
+                            $total_vat = 0;
+                            $total_with_vat = 0;
+                            $tax_rate_decimal = ($invoice['tax_rate'] ?? 0) / 100;
+                            $tax_multiplier = 1 + $tax_rate_decimal;
+                            foreach ($items as $item): 
+                                $row_bg = ($row_num % 2 == 0) ? '#fff' : '#f7faff';
+                                // Calculate unit price without VAT (unit_price includes VAT if tax_rate > 0)
+                                if ($tax_rate_decimal > 0) {
+                                    $unit_price_without_vat = $item['unit_price'] / $tax_multiplier;
+                                } else {
+                                    $unit_price_without_vat = $item['unit_price'];
+                                }
+                                // Apply item-level discount if exists
+                                $item_subtotal = $unit_price_without_vat * $item['quantity'];
+                                if (!empty($item['discount_rate']) && $item['discount_rate'] > 0) {
+                                    $item_discount_amount = $item_subtotal * ($item['discount_rate'] / 100);
+                                    $item_subtotal_after_discount = $item_subtotal - $item_discount_amount;
+                                } else {
+                                    $item_discount_amount = 0;
+                                    $item_subtotal_after_discount = $item_subtotal;
+                                }
+                                // Calculate VAT on discounted amount
+                                $vat_amount = $item_subtotal_after_discount * $tax_rate_decimal;
+                                $item_total_with_vat = $item_subtotal_after_discount + $vat_amount;
+                                
+                                $total_without_vat += $item_subtotal_after_discount;
+                                $total_vat += $vat_amount;
+                                $total_with_vat += $item_total_with_vat;
+                            ?>
                                 <tr style="background: <?php echo $row_bg; ?>;">
-                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: left; font-size: 10pt; "><?php echo htmlspecialchars($item['item_name']); ?></td>
-                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt; "><?php echo $item['quantity']; ?></td>
-                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt; "><?php echo number_format($item['unit_price'], 2); ?> <?php echo $currency; ?></td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;"><?php echo $row_num + 1; ?></td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;"><?php echo htmlspecialchars($item['article_code'] ?? 'N/A'); ?></td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: left; font-size: 10pt;">
+                                        <?php echo htmlspecialchars($item['item_name']); ?>
+                                        <?php if (!empty($item['description'])): ?>
+                                            <br><small style="color: #666; font-size: 9pt;"><?php echo nl2br(htmlspecialchars($item['description'])); ?></small>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;">бр.</td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;"><?php echo $item['quantity']; ?></td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;"><?php echo number_format($unit_price_without_vat, 2); ?> <?php echo $currency; ?></td>
                                     <?php if ($has_item_discount): ?>
-                                        <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt; ">
-                                            <?php if (!empty($item['discount_rate']) && $item['discount_rate'] > 0): ?>
-                                                <?php echo number_format($item['discount_rate'], 2); ?>% (-<?php echo number_format($item['discount_amount'], 2); ?> <?php echo $currency; ?>)
-                                            <?php else: ?>-
-                                            <?php endif; ?>
-                                        </td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;">
+                                        <?php if (!empty($item['discount_rate']) && $item['discount_rate'] > 0): ?>
+                                            <?php echo number_format($item['discount_rate'], 2); ?>%<br>
+                                            <small style="color: #666;">(-<?php echo number_format($item_discount_amount, 2); ?> <?php echo $currency; ?>)</small>
+                                        <?php else: ?>
+                                            -
+                                        <?php endif; ?>
+                                    </td>
                                     <?php endif; ?>
-                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt; "><?php echo number_format($item['total_price'], 2); ?> <?php echo $currency; ?></td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;"><?php echo (isset($invoice['is_vat_obvrznik']) && $invoice['is_vat_obvrznik']) ? number_format($invoice['tax_rate'] ?? 0, 0) : '0'; ?>%</td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;"><?php echo number_format($item['unit_price'], 2); ?> <?php echo $currency; ?></td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;"><?php echo number_format($item['total_price'], 2); ?> <?php echo $currency; ?></td>
                                 </tr>
                             <?php $row_num++; endforeach; ?>
                         <?php else: ?>
-                            <tr><td colspan="<?php echo $has_item_discount ? 5 : 4; ?>" style="border: 1px solid #b6d4ef; padding: 15px; text-align: center; color: #999; font-style: italic;">Нема додадени ставки во оваа фактура</td></tr>
+                            <tr><td colspan="<?php echo $has_item_discount ? 10 : 9; ?>" style="border: 1px solid #b6d4ef; padding: 15px; text-align: center; color: #999; font-style: italic;">Нема додадени ставки во оваа фактура</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -246,10 +320,10 @@ $page_title = 'Фактура';
             <!-- VAT/DISCOUNT ROW -->
             <table width="100%" style="margin-bottom: 8px; padding-bottom: 10px;"><tr>
                 <td style="font-size: 10pt; text-align: left;"><strong>ДДВ обврзник:</strong> <?php echo isset($invoice['is_vat_obvrznik']) ? ($invoice['is_vat_obvrznik'] ? 'Да' : 'Не') : ''; ?></td>
-                <td style="font-size: 10pt; text-align: right;"><strong>Стапка на ДДВ (%):</strong> <?php echo htmlspecialchars($invoice['tax_rate']); ?>%</td>
+                <td style="font-size: 10pt; text-align: right;"><strong>Стапка на ДДВ (%):</strong> <?php echo isset($invoice['is_vat_obvrznik']) && $invoice['is_vat_obvrznik'] ? htmlspecialchars($invoice['tax_rate']) : '0'; ?>%</td>
             </tr></table>
-            <!-- TOTALS SECTION: match PDF layout and spacing -->
-            <div style="border-top: 2px solid #dee2e6; padding-top: 0; margin-top: 0;">
+            <!-- TOTALS SECTION -->
+            <div class="total-section">
                 <table width="100%"><tr><td width="40%"></td><td width="60%">
                     <table width="100%" style="font-size: 10pt; margin-top: 0;">
                         <tr><td colspan="2" style="height: 10px; border: none;"></td></tr>
@@ -268,6 +342,55 @@ $page_title = 'Фактура';
                     </table>
                 </td></tr></table>
             </div>
+            
+            <!-- VAT BREAKDOWN SECTION -->
+            <div style="margin-top: 20px; font-size: 10pt;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="width: 50%; vertical-align: top;">
+                            <div style="font-weight: bold; margin-bottom: 10px;">ддв основица ддв вкупно</div>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 9pt;">
+                                <?php if ($invoice['tax_rate'] > 0): ?>
+                                <tr>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: center;">0%</td>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: right;">0.00</td>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: right;">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: center;"><?php echo number_format($invoice['tax_rate'], 0); ?>%</td>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: right;"><?php echo number_format($total_without_vat, 2); ?></td>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: right;"><?php echo number_format($total_vat, 2); ?></td>
+                                </tr>
+                                <?php else: ?>
+                                <tr>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: center;">0%</td>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: right;"><?php echo number_format($total_without_vat, 2); ?></td>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: right;">0.00</td>
+                                </tr>
+                                <?php endif; ?>
+                            </table>
+                        </td>
+                        <td style="width: 50%; vertical-align: top; padding-left: 20px;">
+                            <div style="font-weight: bold; margin-bottom: 10px;">законски застапник, овластено лице за потпишување на фактури</div>
+                            <div style="margin-top: 30px; font-size: 9pt;">
+                                <div style="margin-bottom: 20px;">
+                                    <div style="border-bottom: 1px solid #000; width: 200px; margin-bottom: 5px;"></div>
+                                    <div style="font-size: 8pt;">(потпис)</div>
+                                </div>
+                                <div style="margin-bottom: 20px;">
+                                    <div style="border-bottom: 1px solid #000; width: 200px; margin-bottom: 5px;"></div>
+                                    <div style="font-size: 8pt;">контролирал примил</div>
+                                </div>
+                                <div>
+                                    <div style="border-bottom: 1px solid #000; width: 200px; margin-bottom: 5px;"></div>
+                                    <div style="font-size: 8pt;">Фактурирал</div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+            
             <!-- NOTES AND SIGNATURES: match PDF -->
             <?php if (!empty($invoice['notes'])): ?>
                 <div style="margin-top: 25px; padding: 12px; background: #fff3cd; border-radius: 6px;">
@@ -295,33 +418,31 @@ $page_title = 'Фактура';
                 </table>
                 <div style="margin-top: 30px; text-align: center; font-size: 11pt;">_________________________<br><span style="font-size:10pt;">Датум</span></div>
             </div>
+        </div>
 
-            <div class="no-print mt-4">
-                <div class="card">
-                    <div class="card-header">
-                        <h5>Ажурирај статус на фактура</h5>
+    <div class="no-print mt-4 d-flex justify-content-center">
+        <div class="card" style="max-width: 700px; width: 100%;">
+            <div class="card-header">
+                <h5>Ажурирај статус на фактура</h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" class="row align-items-end">
+                    <div class="col-md-4">
+                        <label for="status" class="form-label">Статус</label>
+                        <select class="form-select" id="status" name="status">
+                            <option value="draft" <?php echo $invoice['status'] === 'draft' ? 'selected' : ''; ?>>Нацрт</option>
+                            <option value="sent" <?php echo $invoice['status'] === 'sent' ? 'selected' : ''; ?>>Испратена</option>
+                            <option value="paid" <?php echo $invoice['status'] === 'paid' ? 'selected' : ''; ?>>Платена</option>
+                            <option value="overdue" <?php echo $invoice['status'] === 'overdue' ? 'selected' : ''; ?>>Задоцнета</option>
+                        </select>
                     </div>
-                    <div class="card-body">
-                        <form method="POST" class="row align-items-end">
-                            <div class="col-md-4">
-                                <label for="status" class="form-label">Статус</label>
-                                <select class="form-select" id="status" name="status">
-                                    <option value="draft" <?php echo $invoice['status'] === 'draft' ? 'selected' : ''; ?>>Нацрт</option>
-                                    <option value="sent" <?php echo $invoice['status'] === 'sent' ? 'selected' : ''; ?>>Испратена</option>
-                                    <option value="paid" <?php echo $invoice['status'] === 'paid' ? 'selected' : ''; ?>>Платена</option>
-                                    <option value="overdue" <?php echo $invoice['status'] === 'overdue' ? 'selected' : ''; ?>>Задоцнета</option>
-                                </select>
-                            </div>
-                            <div class="col-md-4">
-                                <button type="submit" name="update_status" class="btn btn-primary">Ажурирај</button>
-                            </div>
-                        </form>
+                    <div class="col-md-4">
+                        <button type="submit" name="update_status" class="btn btn-primary">Ажурирај</button>
                     </div>
-                </div>
+                </form>
             </div>
         </div>
     </div>
-
-    </div>
+</div>
 
 <?php include 'includes/footer.php'; ?> 

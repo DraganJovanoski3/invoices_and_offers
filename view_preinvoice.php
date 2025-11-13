@@ -31,8 +31,13 @@ if (!$preinvoice) {
     exit;
 }
 
-// Get pre-invoice items
-$stmt = $pdo->prepare("SELECT * FROM pre_invoice_items WHERE preinvoice_id = ?");
+// Get pre-invoice items with service article codes
+$stmt = $pdo->prepare("
+    SELECT pii.*, s.article_code 
+    FROM pre_invoice_items pii 
+    LEFT JOIN services s ON pii.service_id = s.id 
+    WHERE pii.preinvoice_id = ?
+");
 $stmt->execute([$preinvoice_id]);
 $items = $stmt->fetchAll();
 
@@ -43,6 +48,39 @@ $currency = $company['currency'] ?? 'ден';
 
 // Check if a final invoice exists for this pre-invoice
 $final_invoice_id = $preinvoice['final_invoice_id'];
+
+// Handle status updates
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
+    $new_status = $_POST['status'];
+    $valid_statuses = ['draft', 'sent', 'paid', 'overdue'];
+    
+    if (in_array($new_status, $valid_statuses)) {
+        try {
+            $stmt = $pdo->prepare("UPDATE pre_invoices SET status = ? WHERE id = ?");
+            $stmt->execute([$new_status, $preinvoice_id]);
+            
+            if ($stmt->rowCount() > 0) {
+                $_SESSION['success'] = 'Статусот на про фактурата е успешно ажуриран.';
+                // Refresh the pre-invoice data
+                $stmt = $pdo->prepare("
+                    SELECT pf.*, c.name as client_name, c.company_name as client_company_name, c.logo_path as client_logo_path, c.email as client_email, c.phone as client_phone, c.address as client_address, c.tax_number as client_tax_number, c.website as client_website, c.notes as client_notes
+                    FROM pre_invoices pf
+                    LEFT JOIN clients c ON pf.client_id = c.id
+                    WHERE pf.id = ?
+                ");
+                $stmt->execute([$preinvoice_id]);
+                $preinvoice = $stmt->fetch();
+            } else {
+                $_SESSION['error'] = 'Про фактурата не е пронајдена или не е ажурирана.';
+            }
+        } catch (PDOException $e) {
+            error_log("Error updating pre-invoice status: " . $e->getMessage());
+            $_SESSION['error'] = 'Грешка при ажурирање на статусот.';
+        }
+    } else {
+        $_SESSION['error'] = 'Неважечки статус.';
+    }
+}
 
 // Handle generate final invoice from pre-invoice (advance only)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate_final_invoice'])) {
@@ -61,8 +99,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate_final_invoic
             $due_date = date('Y-m-d', strtotime($issue_date . ' +30 days'));
 
             // Calculate remaining amount
-            $remaining_subtotal = $preinvoice['subtotal'] - $preinvoice['advance_amount'];
-            $remaining_tax = $remaining_subtotal * ($preinvoice['tax_rate'] / 100);
+            // advance_amount is from total_amount (after tax), so we need to calculate the subtotal portion
+            $tax_rate_decimal = $preinvoice['tax_rate'] / 100;
+            $advance_subtotal = $preinvoice['advance_amount'] / (1 + $tax_rate_decimal);
+            $remaining_subtotal = $preinvoice['subtotal'] - $advance_subtotal;
+            $remaining_tax = $remaining_subtotal * $tax_rate_decimal;
             $remaining_total = $remaining_subtotal + $remaining_tax;
 
             // Insert invoice
@@ -85,9 +126,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate_final_invoic
             $stmt = $pdo->prepare("INSERT INTO invoice_items (invoice_id, service_id, item_name, description, quantity, unit_price, total_price, discount_rate, discount_amount, is_discount, final_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             foreach ($items as $item) {
                 // Proportionally reduce each item's total_price if advance was paid
+                // Calculate the advance portion of subtotal for this item
                 $item_total = $item['total_price'];
                 $item_share = $item_total / $preinvoice['subtotal'];
-                $item_remaining = $item_total - ($preinvoice['advance_amount'] * $item_share);
+                $item_advance_subtotal = $advance_subtotal * $item_share;
+                $item_remaining = $item_total - $item_advance_subtotal;
                 $stmt->execute([
                     $new_invoice_id,
                     $item['service_id'],
@@ -148,14 +191,14 @@ $page_title = 'Про фактура';
                         <!-- Client logo left -->
                         <td width="15%" style="vertical-align: top; text-align: left; padding-right: 10px;">
                             <?php if ($preinvoice['client_logo_path']): ?>
-                                <img src="<?php echo htmlspecialchars($preinvoice['client_logo_path']); ?>" class="client-logo" />
+                                <img src="<?php echo htmlspecialchars($preinvoice['client_logo_path']); ?>" class="client-logo" style="display:block;" />
                             <?php endif; ?>
                         </td>
                         <td width="70%"></td>
                         <!-- Company logo right -->
                         <td width="15%" style="vertical-align: top; text-align: right; padding-left: 10px;">
                             <?php if ($company['logo_path']): ?>
-                                <img src="<?php echo htmlspecialchars($company['logo_path']); ?>" style="width:70px; height:auto; margin-bottom: 8px; border-radius: 6px; display:block;" />
+                                <img src="<?php echo htmlspecialchars($company['logo_path']); ?>" class="company-logo" style="margin-bottom: 8px; border-radius: 6px; display:block;" />
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -225,7 +268,7 @@ $page_title = 'Про фактура';
             <!-- LEGAL INFORMATION ROW -->
             <div style="margin-bottom: 15px; padding-bottom: 10px;">
                 <table width="100%" style="margin-bottom:0; padding-bottom:0;"><tr>
-                    <td width="50%" style="font-size: 10pt;"><strong>Датум на испорака:</strong> <?php echo $preinvoice['supply_date'] ? date('d.m.Y', strtotime($preinvoice['supply_date'])) : date('d.m.Y', strtotime($preinvoice['issue_date'])); ?></td>
+                    <td width="50%" style="font-size: 10pt;"><strong>Датум на испорака:</strong> <?php echo !empty($preinvoice['supply_date']) ? date('d.m.Y', strtotime($preinvoice['supply_date'])) : date('d.m.Y', strtotime($preinvoice['issue_date'])); ?></td>
                     <td width="50%" style="font-size: 10pt;"><strong>Начин на плаќање:</strong> 
                         <?php 
                         $payment_methods = [
@@ -235,19 +278,19 @@ $page_title = 'Про фактура';
                             'check' => 'Чек',
                             'other' => 'Друго'
                         ];
-                        echo $payment_methods[$preinvoice['payment_method']] ?? 'Банкарски трансфер';
+                        echo $payment_methods[$preinvoice['payment_method'] ?? 'bank_transfer'] ?? 'Банкарски трансфер';
                         ?>
                     </td>
                 </tr></table>
             </div>
             
             <!-- AUTHORIZED PERSON ROW -->
-            <?php if ($preinvoice['authorized_person']): ?>
+            <?php if (!empty($preinvoice['authorized_person'])): ?>
             <div style="margin-bottom: 15px; padding-bottom: 10px;">
                 <table width="100%" style="margin-bottom:0; padding-bottom:0;"><tr>
                     <td width="50%" style="font-size: 10pt;"><strong>Овластено лице:</strong> <?php echo htmlspecialchars($preinvoice['authorized_person']); ?></td>
                     <td width="50%" style="font-size: 10pt;">
-                        <?php if ($preinvoice['fiscal_receipt_number']): ?>
+                        <?php if (!empty($preinvoice['fiscal_receipt_number'])): ?>
                             <strong>Фискален број:</strong> <?php echo htmlspecialchars($preinvoice['fiscal_receipt_number']); ?>
                         <?php endif; ?>
                     </td>
@@ -258,35 +301,45 @@ $page_title = 'Про фактура';
             <div class="items-table">
                 <table class="table" style="border-collapse: collapse; font-size: 10pt;">
                     <thead><tr style="background: #e9f3fb;">
-                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: left; font-weight: bold;">Опис</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Рб</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Шифра</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: left; font-weight: bold;">Артикал</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Ем</th>
                         <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Количина</th>
-                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Ед. цена</th>
-                        <?php $has_item_discount = false; foreach ($items as $item) { if (!empty($item['discount_rate']) && $item['discount_rate'] > 0) { $has_item_discount = true; break; } } ?>
-                        <?php if ($has_item_discount): ?>
-                            <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Попуст</th>
-                        <?php endif; ?>
-                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Вкупно</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Цена без ДДВ</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">ДДВ</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Цена со ДДВ</th>
+                        <th style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-weight: bold;">Вредност со ДДВ</th>
                     </tr></thead>
                     <tbody>
                         <?php if (!empty($items)): ?>
-                            <?php $row_num = 0; foreach ($items as $item): $row_bg = ($row_num % 2 == 0) ? '#fff' : '#f7faff'; ?>
+                            <?php 
+                            $row_num = 0; 
+                            $total_without_vat = 0;
+                            $total_vat = 0;
+                            $total_with_vat = 0;
+                            foreach ($items as $item): 
+                                $row_bg = ($row_num % 2 == 0) ? '#fff' : '#f7faff';
+                                $unit_price_without_vat = $item['unit_price'] / 1.18; // Assuming 18% VAT
+                                $vat_amount = $item['unit_price'] - $unit_price_without_vat;
+                                $total_without_vat += $unit_price_without_vat * $item['quantity'];
+                                $total_vat += $vat_amount * $item['quantity'];
+                                $total_with_vat += $item['total_price'];
+                            ?>
                                 <tr style="background: <?php echo $row_bg; ?>;">
-                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: left; font-size: 10pt; "><?php echo htmlspecialchars($item['item_name']); ?></td>
-                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt; "><?php echo $item['quantity']; ?></td>
-                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt; "><?php echo number_format($item['unit_price'], 2); ?> <?php echo $currency; ?></td>
-                                    <?php if ($has_item_discount): ?>
-                                        <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt; ">
-                                            <?php if (!empty($item['discount_rate']) && $item['discount_rate'] > 0): ?>
-                                                <?php echo number_format($item['discount_rate'], 2); ?>% (-<?php echo number_format($item['discount_amount'], 2); ?> <?php echo $currency; ?>)
-                                            <?php else: ?>-
-                                            <?php endif; ?>
-                                        </td>
-                                    <?php endif; ?>
-                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt; "><?php echo number_format($item['total_price'], 2); ?> <?php echo $currency; ?></td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;"><?php echo $row_num + 1; ?></td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;"><?php echo htmlspecialchars($item['article_code'] ?? 'N/A'); ?></td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: left; font-size: 10pt;"><?php echo htmlspecialchars($item['item_name']); ?></td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;">бр.</td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;"><?php echo $item['quantity']; ?></td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;"><?php echo number_format($unit_price_without_vat, 2); ?> <?php echo $currency; ?></td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;">18%</td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;"><?php echo number_format($item['unit_price'], 2); ?> <?php echo $currency; ?></td>
+                                    <td style="border: 1px solid #b6d4ef; padding: 8px; text-align: center; font-size: 10pt;"><?php echo number_format($item['total_price'], 2); ?> <?php echo $currency; ?></td>
                                 </tr>
                             <?php $row_num++; endforeach; ?>
                         <?php else: ?>
-                            <tr><td colspan="<?php echo $has_item_discount ? 5 : 4; ?>" style="border: 1px solid #b6d4ef; padding: 15px; text-align: center; color: #999; font-style: italic;">Нема додадени ставки во оваа Про Фактура</td></tr>
+                            <tr><td colspan="9" style="border: 1px solid #b6d4ef; padding: 15px; text-align: center; color: #999; font-style: italic;">Нема додадени ставки во оваа Про Фактура</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -323,6 +376,47 @@ $page_title = 'Про фактура';
                     </table>
                 </td></tr></table>
             </div>
+            
+            <!-- VAT BREAKDOWN SECTION -->
+            <div style="margin-top: 20px; font-size: 10pt;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="width: 50%; vertical-align: top;">
+                            <div style="font-weight: bold; margin-bottom: 10px;">ддв основица ддв вкупно</div>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 9pt;">
+                                <tr>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: center;">0%</td>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: right;"><?php echo number_format($total_without_vat, 0); ?></td>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: right;">0.00</td>
+                                </tr>
+                                <tr>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: center;">18%</td>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: right;"><?php echo number_format($total_without_vat, 0); ?></td>
+                                    <td style="border: 1px solid #ccc; padding: 5px; text-align: right;"><?php echo number_format($total_vat, 2); ?></td>
+                                </tr>
+                            </table>
+                        </td>
+                        <td style="width: 50%; vertical-align: top; padding-left: 20px;">
+                            <div style="font-weight: bold; margin-bottom: 10px;">законски застапник, овластено лице за потпишување на фактури</div>
+                            <div style="margin-top: 30px; font-size: 9pt;">
+                                <div style="margin-bottom: 20px;">
+                                    <div style="border-bottom: 1px solid #000; width: 200px; margin-bottom: 5px;"></div>
+                                    <div style="font-size: 8pt;">(потпис)</div>
+                                </div>
+                                <div style="margin-bottom: 20px;">
+                                    <div style="border-bottom: 1px solid #000; width: 200px; margin-bottom: 5px;"></div>
+                                    <div style="font-size: 8pt;">контролирал примил</div>
+                                </div>
+                                <div>
+                                    <div style="border-bottom: 1px solid #000; width: 200px; margin-bottom: 5px;"></div>
+                                    <div style="font-size: 8pt;">Фактурирал</div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+            
             <!-- NOTES AND SIGNATURES -->
             <?php if (!empty($preinvoice['notes'])): ?>
                 <div style="margin-top: 25px; padding: 12px; background: #fff3cd; border-radius: 6px;">
